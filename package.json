@@ -1,0 +1,23 @@
+{
+  "name": "langgraph-agent",
+  "version": "1.0.0",
+  "description": "LangGraph Agent with DeepSeek",
+  "type": "module",
+  "scripts": {
+    "start": "tsx agent.mts",
+    "dev": "tsx watch agent.mts"
+  },
+  "dependencies": {
+    "@langchain/community": "^0.3.55",
+    "@langchain/core": "^0.3.75",
+    "@langchain/langgraph": "^0.4.9",
+    "@langchain/openai": "^0.6.11",
+    "@langchain/tavily": "^0.1.5",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
