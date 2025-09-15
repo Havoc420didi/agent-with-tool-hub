@@ -1,0 +1,224 @@
+{
+  "tools": {
+    "displayGoods": {
+      "name": "displayGoods",
+      "description": "向用户展示基本的商品列表。如（有什么咖啡推荐、推荐一些吃的...），此时结合页面State中的商品信息，调用此接口向用户展示匹配用户需求的商品列表，此接口会用UI展示商品。最多展示3个商品。如果用户询问的是商品的规格，请调用 getGoodsDetail 获取商品详情。如果用户询问的商品不存在，调用这个方法向用户展示相近的商品",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goodsList": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "goodsId": {
+                  "type": "string",
+                  "description": "商品id"
+                },
+                "goodsName": {
+                  "type": "string",
+                  "description": "商品名称"
+                },
+                "goodsPrice": {
+                  "type": "number",
+                  "description": "商品价格"
+                },
+                "picture": {
+                  "type": "string",
+                  "description": "商品图片url"
+                },
+                "keywords": {
+                  "type": "string",
+                  "description": "商品标签"
+                }
+              },
+              "required": [
+                "goodsId",
+                "goodsName",
+                "goodsPrice",
+                "picture",
+                "keywords"
+              ]
+            }
+          }
+        },
+        "required": [
+          "goodsList"
+        ]
+      }
+    },
+    "getGoodsDetail": {
+      "name": "getGoodsDetail",
+      "description": "获取商品详细的规格信息，调用 order 或 addToCart 之前，需要先调用 getGoodsDetail 获取商品详情，如果用户的需求已包含商品详情中的规格信息，请你向用户再次确认规格后再进行后续操作，如果用户未指定规格信息，调用 displayGoodsDetailToUser 向用户展示规格信息",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "goodsId": {
+                  "type": "number",
+                  "description": "需要获取详情的商品 id"
+                }
+              },
+              "required": [
+                "goodsId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    "displayGoodsDetailToUser": {
+      "name": "displayGoodsDetailToUser",
+      "description": "通过 UI 卡片向用户展示商品规格信息，如查看经典美式的规格信息等..., 这一步是函数执行的结尾，需要用户再次确认后，再执行order 或其他后续操作",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "goodsId": {
+                  "type": "number",
+                  "description": "需要获取详情的商品 id"
+                }
+              },
+              "required": [
+                "goodsId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    "addToCart": {
+      "name": "addToCart",
+      "description": "wxcafe小程序加入购物车服务，支持一次加入多个商品。\n用户可能这样问：要一杯鲜榨橙汁吧、购物车中加入两杯冰美式和一杯生椰拿铁、我想喝生椰拿铁和芒果奶冻。\n通常向用户展示完商品后下一步就是加入购物车。加入购物车后可提醒用户确认下单。\n如果用户描述不明确（比如没有说明 温度、糖度、是否加料等信息），用户输入的商品没有严格匹配成功，请你先调用 getGoodsDetail 获取商品详情，然后根据用户描述，从商品详情中选取一个 skuid，再调用此函数加入购物车。\n执行这个函数后，UI 组件会展示当前购物车的状态。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skuId": {
+                  "type": "number",
+                  "description": "需要加入购物车的商品规格 id"
+                },
+                "num": {
+                  "type": "number",
+                  "description": "需要加入购物车的商品数量"
+                }
+              },
+              "required": [
+                "skuId",
+                "num"
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    "order": {
+      "name": "order",
+      "description": "wxcafe小程序点单函数，点单前先调用 getGoodsDetail 获取商品详情\n1. 如果用户描述不明确（比如没有说明 温度、糖度、是否加料等信息），先向用户确认具体的规格信息， 再选取正确的 skuid调用此函数进行点单。\n2. 如果用户描述明确，请在下单前向用户确认即将下单的商品，再进行下单 \n 3.确认目标商品之后，必须先执行 displayShopCart 工具给用户查看接下来会下单哪些商品。\n4. 例句：来一杯生椰拿铁，帮我点一杯冰美式，帮我买个吃的",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skuId": {
+                  "type": "number",
+                  "description": "需要点的商品规格 id"
+                },
+                "num": {
+                  "type": "number",
+                  "description": "需要点的商品数量"
+                }
+              },
+              "required": [
+                "skuId",
+                "num"
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    "clearShopCart": {
+      "name": "clearShopCart",
+      "description": "将购物车中的所有商品一次性全部移除，适用于用户需要快速清空购物车的场景。例如：用户说“清空购物车”、“把购物车里的东西都删掉”。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    "deleteProduct": {
+      "name": "deleteProduct",
+      "description": "wxcafe小程序删除购物车中的某个商品，商品名必须严格匹配，否则直接回复用户无该商品。例如：删除购物车中的冰美式，删除一杯购物车中的生椰拿铁；然后这个工具会展示删除后的购物车状态。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "skuId": {
+            "type": "number",
+            "description": "需要删除的商品规格 id"
+          },
+          "num": {
+            "type": "number",
+            "description": "删除后剩余的数量"
+          }
+        },
+        "required": [
+          "skuId",
+          "num"
+        ]
+      }
+    },
+    "getOrderStatus": {
+      "name": "getOrderStatus",
+      "description": "wxcafe 获取订单状态服务，用户可能会这样询问：我的取餐号是多少，我的订单做好了吗",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "orderOffest": {
+            "type": "number",
+            "description": "订单偏移量，用于告诉用户订单状态，0 表示最新订单，1 表示第二新订单，以此类推。min 0， max 4。"
+          }
+        },
+        "required": [
+          "orderOffest"
+        ]
+      }
+    },
+    "displayShopCart": {
+      "name": "displayShopCart",
+      "description": "通过 UI 组件的方式展示购物车，通常在用户询问购物车时调用；以及在 order 点单之前必须先调用 displayShopCart 展示购物车，等待用户确认后再执行 order 下单。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  }
+}

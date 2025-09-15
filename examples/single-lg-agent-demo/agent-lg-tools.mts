@@ -62,7 +62,7 @@ const model = new ChatOpenAI({
 
 console.log('🚀 开始 ToolNode 演示...\n');
 
-// TAG 1. 手动调用 ToolNode 示例
+{ // TAG 1. 手动调用 ToolNode 示例
 console.log('=== 1. 手动调用 ToolNode ===');
 
 // 创建包含单个工具调用的 AI 消息
@@ -105,6 +105,7 @@ console.log('多个工具调用结果:');
 multipleToolResult.messages.forEach((msg: ToolMessage, index: number) => {
   console.log(`  工具 ${index + 1}: ${msg.content}`);
 });
+}
 
 // // TAG 2. 与聊天模型一起使用
 // console.log('\n=== 2. 与聊天模型一起使用 ===');
@@ -147,7 +148,7 @@ const workflow = new StateGraph(MessagesAnnotation)
 
 const app = workflow.compile();
 
-// 测试 ReAct 代理
+{ // 测试 ReAct 代理
 // console.log('测试单个工具调用:');
 // const singleAgentResult = await app.invoke({
 //   messages: [new HumanMessage("旧金山的天气如何？")],
@@ -159,6 +160,7 @@ const app = workflow.compile();
 //   messages: [new HumanMessage("最酷炫的城市有哪些？它们的天气怎么样？")],
 // });
 // console.log('代理回复:', multiAgentResult.messages[multiAgentResult.messages.length - 1].content);
+}
 
 // TAG 4. 流式处理示例
 console.log('\n=== 4. 流式处理示例 ===');

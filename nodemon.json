@@ -1,0 +1,25 @@
+{
+  "watch": [
+    "src/**/*",
+    "config.env",
+    "package.json"
+  ],
+  "ext": "ts,js,json,env",
+  "ignore": [
+    "node_modules/**/*",
+    "dist/**/*",
+    "tests/**/*",
+    "docs/**/*",
+    "examples/**/*"
+  ],
+  "exec": "tsx src/main.ts",
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": 1000,
+  "verbose": true,
+  "restartable": "rs",
+  "colours": true,
+  "signal": "SIGTERM",
+  "stdout": true
+}

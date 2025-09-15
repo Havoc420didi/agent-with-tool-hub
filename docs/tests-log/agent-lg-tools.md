@@ -1,5 +1,4 @@
-# H1
-
+# 一个简单 lg 框架下的 agent-tool demo
 对于多工具的调用，会在message中填入过个 ToolMessage；
 
 ```bash

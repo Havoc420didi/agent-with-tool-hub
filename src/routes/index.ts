@@ -1,0 +1,208 @@
+// routes/index.ts - 简化的聊天 API
+
+import Router from 'koa-router';
+import { AgentBuilder } from '../core/agent-builder';
+import { createToolHubWithPresets } from '../tool-hub/index';
+import { ToolExecutionMode } from '../core/types';
+import { LangChainAdapter } from '../tool-hub/adapters/langchain-adapter';
+
+const router = new Router({ prefix: '/api' });
+
+// 健康检查
+router.get('/health', async (ctx) => {
+  ctx.body = {
+    success: true,
+    data: {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    }
+  };
+});
+
+// 基本对话 API
+router.post('/chat', async (ctx) => {
+  try {
+    const {
+      message,
+      threadId,
+      // Agent 配置
+      model = {
+        name: 'deepseek-chat',
+        temperature: 0,
+        baseURL: process.env.OPENAI_BASE_URL,
+        apiKey: process.env.OPENAI_API_KEY
+      },
+      memory = { enabled: true },
+      streaming = false,
+      // 工具配置
+      tools = [],
+      toolHubConfig = {},
+      // 工具关系配置
+      toolRelations = {},
+      // 工具执行模式配置
+      toolExecution = {
+        mode: ToolExecutionMode.INTERNAL,
+        internalConfig: {
+          enableCache: true,
+          cacheTtl: 300000,
+          maxRetries: 3
+        }
+      },
+      // 其他配置
+      config = {}
+    } = ctx.request.body as any;
+
+    if (!message) {
+      ctx.status = 400;
+      ctx.body = {
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'message 是必需的'
+        }
+      };
+      return;
+    }
+
+    // 创建 ToolHub
+    const toolHub = await createToolHubWithPresets(toolHubConfig);
+    
+    // 注册自定义工具
+    if (tools && tools.length > 0) {
+      const registerResult = toolHub.registerBatch(tools);
+      if (registerResult.failed > 0) {
+        console.warn(`部分工具注册失败: ${registerResult.failed} 个`);
+      }
+    }
+
+    // 创建 Agent
+    const agent = new AgentBuilder({
+      model,
+      memory,
+      streaming,
+      toolExecution,
+      ...config
+    });
+    
+    // 异步初始化 Agent
+    await agent.initialize();
+
+    // 处理工具关系（如果需要）
+    if (Object.keys(toolRelations).length > 0) {
+      // 这里可以添加工具关系处理逻辑
+      console.log('工具关系配置:', toolRelations);
+    }
+
+    // 执行聊天
+    let result;
+    if (streaming) {
+      // 流式响应
+      ctx.set({
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*'
+      });
+
+      const stream = agent.stream(message, threadId);
+      
+      for await (const chunk of stream) {
+        ctx.res.write(`data: ${JSON.stringify({
+          type: 'content',
+          data: chunk,
+          timestamp: new Date().toISOString(),
+          threadId: threadId || 'default'
+        })}\n\n`);
+      }
+      
+      ctx.res.write(`data: ${JSON.stringify({
+        type: 'done',
+        data: { success: true },
+        timestamp: new Date().toISOString(),
+        threadId: threadId || 'default'
+      })}\n\n`);
+      
+      ctx.res.end();
+      return;
+    } else {
+      // 普通响应
+      result = await agent.invoke(message, threadId);
+    }
+
+    ctx.body = {
+      success: true,
+      data: {
+        content: result.content,
+        toolCalls: result.toolCalls,
+        metadata: {
+          ...result.metadata,
+          threadId: threadId || 'default',
+          timestamp: new Date().toISOString(),
+          toolsUsed: result.toolCalls?.map(tc => tc.toolName) || [],
+          // toolHubStats: toolHub.getStats()
+        }
+      }
+    };
+
+  } catch (error) {
+    ctx.status = 500;
+    ctx.body = {
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error instanceof Error ? error.message : '聊天处理失败'
+      }
+    };
+  }
+});
+
+// 获取工具执行模式配置示例
+router.get('/tool-execution/examples', async (ctx) => {
+  try {
+    const examples = {
+      internal: {
+        mode: ToolExecutionMode.INTERNAL,
+        internalConfig: {
+          enableCache: true,
+          cacheTtl: 300000,
+          maxRetries: 3
+        },
+        description: '内部执行模式：工具在 agent 内部直接执行'
+      },
+      outside: {
+        mode: ToolExecutionMode.OUTSIDE,
+        outsideConfig: {
+          waitForResult: true,
+          timeout: 30000,
+          callbackUrl: 'https://your-external.com/api/tool-callback'
+        },
+        description: '外部执行模式：agent 只负责下发 tool-call，由外部执行'
+      },
+      outsideNoWait: {
+        mode: ToolExecutionMode.OUTSIDE,
+        outsideConfig: {
+          waitForResult: false,
+          callbackUrl: 'https://your-external.com/api/tool-callback'
+        },
+        description: '外部执行模式（不等待结果）：下发 tool-call 后立即返回'
+      }
+    };
+    
+    ctx.body = {
+      success: true,
+      data: examples
+    };
+  } catch (error) {
+    ctx.status = 500;
+    ctx.body = {
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error instanceof Error ? error.message : '获取工具执行模式示例失败'
+      }
+    };
+  }
+});
+
+export { router as agentRoutes };
