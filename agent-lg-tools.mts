@@ -106,20 +106,19 @@ multipleToolResult.messages.forEach((msg: ToolMessage, index: number) => {
   console.log(`  工具 ${index + 1}: ${msg.content}`);
 });
 
-console.log('\n=== 2. 与聊天模型一起使用 ===');
+// // TAG 2. 与聊天模型一起使用
+// console.log('\n=== 2. 与聊天模型一起使用 ===');
+// const responseMessage = await model.invoke("旧金山的天气怎么样？");
+// console.log('模型响应:', responseMessage.content);
+// console.log('工具调用:', responseMessage.tool_calls);
 
-// 2. 与聊天模型一起使用
-const responseMessage = await model.invoke("旧金山的天气怎么样？");
-console.log('模型响应:', responseMessage.content);
-console.log('工具调用:', responseMessage.tool_calls);
+// // 将模型响应传递给 ToolNode
+// const toolResult = await toolNode.invoke({ messages: [responseMessage] });
+// console.log('工具执行结果:', toolResult.messages[0].content);
 
-// 将模型响应传递给 ToolNode
-const toolResult = await toolNode.invoke({ messages: [responseMessage] });
-console.log('工具执行结果:', toolResult.messages[0].content);
+// console.log('\n=== 3. ReAct 代理示例 ===');
 
-console.log('\n=== 3. ReAct 代理示例 ===');
-
-// 3. ReAct 代理实现
+// TAG 3. ReAct 代理实现
 const shouldContinue = (state: { messages: any[] }) => {
   const { messages } = state;
   const lastMessage = messages[messages.length - 1] as AIMessage;
@@ -149,22 +148,20 @@ const workflow = new StateGraph(MessagesAnnotation)
 const app = workflow.compile();
 
 // 测试 ReAct 代理
-console.log('测试单个工具调用:');
-const singleAgentResult = await app.invoke({
-  messages: [new HumanMessage("旧金山的天气如何？")],
-});
-console.log('代理回复:', singleAgentResult.messages[singleAgentResult.messages.length - 1].content);
+// console.log('测试单个工具调用:');
+// const singleAgentResult = await app.invoke({
+//   messages: [new HumanMessage("旧金山的天气如何？")],
+// });
+// console.log('代理回复:', singleAgentResult.messages[singleAgentResult.messages.length - 1].content);
 
-console.log('\n测试多个工具调用:');
-const multiAgentResult = await app.invoke({
-  messages: [new HumanMessage("最酷炫的城市有哪些？它们的天气怎么样？")],
-});
+// console.log('\n测试多个工具调用:');
+// const multiAgentResult = await app.invoke({
+//   messages: [new HumanMessage("最酷炫的城市有哪些？它们的天气怎么样？")],
+// });
+// console.log('代理回复:', multiAgentResult.messages[multiAgentResult.messages.length - 1].content);
 
-console.log('代理回复:', multiAgentResult.messages[multiAgentResult.messages.length - 1].content);
-
+// TAG 4. 流式处理示例
 console.log('\n=== 4. 流式处理示例 ===');
-
-// 4. 流式处理示例
 console.log('流式处理工具调用:');
 const stream = await app.stream(
   {
@@ -176,19 +173,6 @@ const stream = await app.stream(
 );
 
 for await (const chunk of stream) {
-  const lastMessage = chunk.messages[chunk.messages.length - 1] as any;
-  const type = lastMessage._getType();
-  const content = lastMessage.content;
-  const toolCalls = lastMessage.tool_calls;
-  
-  console.log(`类型: ${type}`);
-  if (content) {
-    console.log(`内容: ${content}`);
-  }
-  if (toolCalls && toolCalls.length > 0) {
-    console.log(`工具调用: ${toolCalls.map((tc: any) => tc.name).join(', ')}`);
-  }
-  console.log('---');
+    // const lastMessage = chunk.messages[chunk.messages.length - 1] as any;
+    console.log('😺', chunk.messages);
 }
-
-console.log('\n✅ ToolNode 演示完成！');
