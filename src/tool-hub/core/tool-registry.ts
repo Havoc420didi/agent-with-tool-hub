@@ -5,22 +5,26 @@ import {
   ToolRegistration, 
   ToolSearchOptions, 
   ToolSearchResult, 
-  ToolStats,
   ToolRegistrationResult,
   BatchToolRegistrationResult
 } from '../types/index';
+import { Logger, createToolRegistryLogger } from '../utils/logger';
 
 /**
  * 工具注册表 - 管理所有注册的工具
  */
 export class ToolRegistry {
   private tools: Map<string, ToolRegistration> = new Map();
-  private categories: Map<string, Set<string>> = new Map();
   private tags: Map<string, Set<string>> = new Map();
   private validators: Array<(config: ToolConfig) => boolean | string> = [];
+  private logger: Logger;
 
   constructor(validators?: Array<(config: ToolConfig) => boolean | string>) {
     this.validators = validators || [];
+    this.logger = createToolRegistryLogger({
+      enabled: true,
+      level: 'info'
+    });
   }
 
   /**
@@ -57,14 +61,6 @@ export class ToolRegistry {
       // 注册工具
       this.tools.set(config.name, registration);
 
-      // 更新分类索引
-      if (config.category) {
-        if (!this.categories.has(config.category)) {
-          this.categories.set(config.category, new Set());
-        }
-        this.categories.get(config.category)!.add(config.name);
-      }
-
       // 更新标签索引
       if (config.tags) {
         config.tags.forEach(tag => {
@@ -80,10 +76,14 @@ export class ToolRegistry {
         toolName: config.name
       };
     } catch (error) {
+      this.logger.error(`工具 "${config.name}" 注册失败: ${error instanceof Error ? error.message : String(error)}`, {
+        toolName: config.name,
+        error: error instanceof Error ? error.message : String(error)
+      });
       return {
         success: false,
         toolName: config.name,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error) as string
       };
     }
   }
@@ -120,18 +120,8 @@ export class ToolRegistry {
   unregister(name: string): boolean {
     const registration = this.tools.get(name);
     if (!registration) {
+      this.logger.warn(`尝试注销不存在的工具: "${name}"`);
       return false;
-    }
-
-    // 从分类索引中移除
-    if (registration.config.category) {
-      const categorySet = this.categories.get(registration.config.category);
-      if (categorySet) {
-        categorySet.delete(name);
-        if (categorySet.size === 0) {
-          this.categories.delete(registration.config.category);
-        }
-      }
     }
 
     // 从标签索引中移除
@@ -202,21 +192,11 @@ export class ToolRegistry {
       tools = tools.filter(tool => descPattern.test(tool.description));
     }
 
-    // 按分类过滤
-    if (options.category) {
-      tools = tools.filter(tool => tool.category === options.category);
-    }
-
     // 按标签过滤
     if (options.tags && options.tags.length > 0) {
       tools = tools.filter(tool => 
         tool.tags && options.tags!.some(tag => tool.tags!.includes(tag))
       );
-    }
-
-    // 只返回启用的工具
-    if (options.enabledOnly) {
-      tools = tools.filter(tool => tool.enabled !== false);
     }
 
     const total = tools.length;
@@ -253,51 +233,7 @@ export class ToolRegistry {
    */
   clear(): void {
     this.tools.clear();
-    this.categories.clear();
     this.tags.clear();
-  }
-
-  /**
-   * 获取工具统计信息
-   */
-  getStats(): ToolStats {
-    const allTools = Array.from(this.tools.values()).map(reg => reg.config);
-    const enabledTools = allTools.filter(tool => tool.enabled !== false);
-
-    // 按分类统计
-    const byCategory: Record<string, number> = {};
-    allTools.forEach(tool => {
-      if (tool.category) {
-        byCategory[tool.category] = (byCategory[tool.category] || 0) + 1;
-      }
-    });
-
-    // 按标签统计
-    const byTag: Record<string, number> = {};
-    allTools.forEach(tool => {
-      if (tool.tags) {
-        tool.tags.forEach(tag => {
-          byTag[tag] = (byTag[tag] || 0) + 1;
-        });
-      }
-    });
-
-    // 使用频率最高的工具
-    const mostUsed = Array.from(this.tools.values())
-      .map(reg => ({
-        name: reg.config.name,
-        usageCount: reg.usageCount
-      }))
-      .sort((a, b) => b.usageCount - a.usageCount)
-      .slice(0, 10);
-
-    return {
-      total: allTools.length,
-      enabled: enabledTools.length,
-      byCategory,
-      byTag,
-      mostUsed
-    };
   }
 
   /**
@@ -361,31 +297,10 @@ export class ToolRegistry {
   }
 
   /**
-   * 获取所有分类
-   */
-  getCategories(): string[] {
-    return Array.from(this.categories.keys());
-  }
-
-  /**
    * 获取所有标签
    */
   getTags(): string[] {
     return Array.from(this.tags.keys());
-  }
-
-  /**
-   * 获取分类下的工具
-   */
-  getToolsByCategory(category: string): ToolConfig[] {
-    const toolNames = this.categories.get(category);
-    if (!toolNames) {
-      return [];
-    }
-
-    return Array.from(toolNames)
-      .map(name => this.tools.get(name)?.config)
-      .filter((config): config is ToolConfig => config !== undefined);
   }
 
   /**
@@ -396,7 +311,6 @@ export class ToolRegistry {
     if (!toolNames) {
       return [];
     }
-
     return Array.from(toolNames)
       .map(name => this.tools.get(name)?.config)
       .filter((config): config is ToolConfig => config !== undefined);

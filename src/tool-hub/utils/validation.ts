@@ -3,9 +3,9 @@
 import { ToolConfig } from '../types/tool.types';
 
 /**
- * 验证工具配置
+ * 验证工具配置（详细版本）
  */
-export function validateToolConfig(config: ToolConfig): { valid: boolean; errors: string[] } {
+export function validateToolConfigDetailed(config: ToolConfig): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   // 验证名称
@@ -32,11 +32,6 @@ export function validateToolConfig(config: ToolConfig): { valid: boolean; errors
     errors.push('工具模式必须定义');
   }
 
-  // 验证分类
-  if (config.category && typeof config.category !== 'string') {
-    errors.push('工具分类必须是字符串');
-  }
-
   // 验证标签
   if (config.tags) {
     if (!Array.isArray(config.tags)) {
@@ -44,18 +39,6 @@ export function validateToolConfig(config: ToolConfig): { valid: boolean; errors
     } else if (!config.tags.every(tag => typeof tag === 'string')) {
       errors.push('所有标签必须是字符串');
     }
-  }
-
-  // 验证版本
-  if (config.version && typeof config.version !== 'string') {
-    errors.push('工具版本必须是字符串');
-  } else if (config.version && !/^\d+\.\d+\.\d+/.test(config.version)) {
-    errors.push('工具版本格式不正确，应为 x.y.z');
-  }
-
-  // 验证作者
-  if (config.author && typeof config.author !== 'string') {
-    errors.push('工具作者必须是字符串');
   }
 
   // 验证配置
@@ -172,7 +155,7 @@ export function validateToolConfigComprehensive(
   errors: string[];
   warnings: string[];
 } {
-  const basicValidation = validateToolConfig(config);
+  const basicValidation = validateToolConfigDetailed(config);
   const uniqueValidation = validateUniqueName(config.name, existingNames);
   const dependencyValidation = validateDependencies(config, existingNames);
   const securityValidation = validateSecurity(config);

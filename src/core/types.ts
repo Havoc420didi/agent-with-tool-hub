@@ -21,7 +21,7 @@ export enum ToolExecutionMode {
  * 工具执行模式配置
  */
 export interface ToolExecutionConfig {
-  /** 执行模式 */
+  /** 执行模式 - 直接控制内部还是外部执行 */
   mode: ToolExecutionMode;
   /** 外部执行模式配置 */
   outsideConfig?: {
@@ -82,7 +82,7 @@ export interface AgentConfig {
   };
   streaming?: boolean;
   /** 工具执行模式配置 */
-  toolExecution?: ToolExecutionConfig;
+  toolExecutionConfig?: ToolExecutionConfig;
 }
 
 // Agent 状态接口
@@ -104,4 +104,36 @@ export interface AgentResponse {
   content: string;
   toolCalls?: ToolCallResult[];
   metadata?: Record<string, any>;
+}
+
+/**
+ * 工具执行决策上下文
+ */
+export interface ToolExecutionDecisionContext {
+  /** 工具名称 */
+  toolName: string;
+  /** 工具参数 */
+  args: Record<string, any>;
+  /** 用户消息 */
+  userMessage?: string;
+  /** 会话上下文 */
+  sessionContext?: Record<string, any>;
+  /** 请求元数据 */
+  requestMetadata?: Record<string, any>;
+  /** 当前执行模式 */
+  currentMode?: ToolExecutionMode;
+}
+
+/**
+ * 工具执行决策结果
+ */
+export interface ToolExecutionDecision {
+  /** 决定的执行模式 */
+  mode: ToolExecutionMode;
+  /** 决策原因 */
+  reason?: string;
+  /** 是否需要等待结果 */
+  waitForResult?: boolean;
+  /** 超时时间 */
+  timeout?: number;
 }

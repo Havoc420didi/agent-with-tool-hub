@@ -2,9 +2,11 @@
 
 import { ToolRegistry } from './tool-registry';
 import { ToolExecutor } from './tool-executor';
+import { createToolHubLogger, Logger } from '../utils/logger';
+import { LangChainAdapter } from '../adapters/langchain-adapter';
+import { GenericAdapter, OpenAIAdapter } from '../adapters/generic-adapter';
 import {
   ToolConfig,
-  ToolResult,
   ToolExecutionContext,
   ToolExecutionOptions,
   ToolExecutionResult,
@@ -17,7 +19,9 @@ import {
   ToolSearchResult,
   ToolRegistrationResult,
   BatchToolRegistrationResult,
-  ToolStats
+  AdapterConfig,
+  FrameworkAdapter,
+  ToolConversionOptions,
 } from '../types/index';
 
 /**
@@ -25,10 +29,15 @@ import {
  */
 export class ToolHub {
   private registry: ToolRegistry;
-  private executor: ToolExecutor;
+  private executor: ToolExecutor;  // 工具执行器；internal 模式下可用
   private config: ToolHubConfig;
   private eventListeners: Map<ToolHubEventType, Set<ToolHubEventListener>> = new Map();
   private initialized: boolean = false;
+  private logger: Logger;
+  
+  // 适配器管理
+  private adapters: Map<string, FrameworkAdapter> = new Map();
+  private defaultAdapter: string = 'langchain';
 
   constructor(config: ToolHubConfig = {}) {
     this.config = {
@@ -48,10 +57,29 @@ export class ToolHub {
       ...config
     };
 
+    // 初始化日志器
+    this.logger = createToolHubLogger({
+      enabled: this.config.logging,
+      level: this.config.logLevel
+    });
+
     this.registry = new ToolRegistry(this.config.validators);
     this.executor = new ToolExecutor(this.config.caching ? this.config.cacheConfig : undefined);
     
+    // 初始化默认适配器
+    this.initializeAdapters();
+    
     this.initialize();
+  }
+
+  /**
+   * 初始化适配器
+   */
+  private initializeAdapters(): void {
+    // 注册默认适配器
+    this.registerAdapter('langchain', new LangChainAdapter());
+    this.registerAdapter('generic', new GenericAdapter());
+    this.registerAdapter('openai', new OpenAIAdapter());
   }
 
   /**
@@ -60,7 +88,7 @@ export class ToolHub {
   private initialize(): void {
     this.initialized = true;
     this.emit('hub.initialized', { timestamp: new Date() });
-    this.log('info', 'ToolHub 已初始化');
+    this.logger.info('ToolHub 已初始化');
   }
 
   /**
@@ -75,9 +103,12 @@ export class ToolHub {
         config,
         timestamp: new Date()
       });
-      this.log('info', `工具 "${config.name}" 注册成功`);
+      this.logger.info(`工具 "${config.name}" 注册成功`, { toolName: config.name });
     } else {
-      this.log('error', `工具 "${config.name}" 注册失败: ${result.error}`);
+      this.logger.error(`工具 "${config.name}" 注册失败: ${result.error}`, { 
+        toolName: config.name, 
+        error: result.error 
+      });
     }
 
     return result;
@@ -89,21 +120,24 @@ export class ToolHub {
   registerBatch(configs: ToolConfig[]): BatchToolRegistrationResult {
     const result = this.registry.registerBatch(configs);
     
-    this.log('info', `批量注册完成: 成功 ${result.success} 个，失败 ${result.failed} 个`);
+    this.logger.info(`批量注册完成: 成功 ${result.success} 个，失败 ${result.failed} 个`, {
+      success: result.success,
+      failed: result.failed,
+      total: result.total
+    });
     
-    // 为成功注册的工具发送事件
-    result.results.forEach(regResult => {
-      if (regResult.success) {
-        const config = configs.find(c => c.name === regResult.toolName);
-        if (config) {
-          this.emit('tool.registered', {
-            toolName: config.name,
-            config,
-            timestamp: new Date()
+    // 输出失败的工具详细信息
+    if (result.failed > 0) {
+      this.logger.error('部分工具注册失败', { failedCount: result.failed });
+      result.results.forEach(regResult => {
+        if (!regResult.success) {
+          this.logger.error(`工具注册失败: ${regResult.toolName}`, {
+            toolName: regResult.toolName,
+            error: regResult.error
           });
         }
-      }
-    });
+      });
+    }
 
     return result;
   }
@@ -119,9 +153,9 @@ export class ToolHub {
         toolName: name,
         timestamp: new Date()
       });
-      this.log('info', `工具 "${name}" 已注销`);
+      this.logger.info(`工具 "${name}" 已注销`, { toolName: name });
     } else {
-      this.log('warn', `工具 "${name}" 不存在`);
+      this.logger.warn(`工具 "${name}" 不存在`, { toolName: name });
     }
 
     return success;
@@ -176,7 +210,10 @@ export class ToolHub {
           timestamp: new Date(),
           context: executionOptions.context
         });
-        this.log('debug', `工具 "${name}" 执行成功`);
+        this.logger.debug(`工具 "${name}" 执行成功`, { 
+          toolName: name, 
+          executionTime: result.executionTime 
+        });
       } else {
         this.emit('tool.failed', {
           toolName: name,
@@ -184,7 +221,10 @@ export class ToolHub {
           timestamp: new Date(),
           context: executionOptions.context
         });
-        this.log('error', `工具 "${name}" 执行失败: ${result.error}`);
+        this.logger.error(`工具 "${name}" 执行失败: ${result.error}`, { 
+          toolName: name, 
+          error: result.error 
+        });
       }
 
       return result;
@@ -204,7 +244,10 @@ export class ToolHub {
         context: executionOptions.context
       });
 
-      this.log('error', `工具 "${name}" 执行异常: ${result.error}`);
+      this.logger.error(`工具 "${name}" 执行异常: ${result.error}`, { 
+        toolName: name, 
+        error: result.error 
+      });
       return result;
     }
   }
@@ -252,13 +295,6 @@ export class ToolHub {
   }
 
   /**
-   * 获取工具统计信息
-   */
-  getStats(): ToolStats {
-    return this.registry.getStats();
-  }
-
-  /**
    * 获取 ToolHub 状态
    */
   getStatus(): ToolHubStatus {
@@ -282,7 +318,7 @@ export class ToolHub {
       timestamp: new Date()
     });
     
-    this.log('info', '所有工具已清空');
+    this.logger.info('所有工具已清空');
   }
 
   /**
@@ -321,27 +357,15 @@ export class ToolHub {
         try {
           listener(event);
         } catch (error) {
-          this.log('error', `事件监听器执行失败: ${error instanceof Error ? error.message : String(error)}`);
+          this.logger.error(`事件监听器执行失败: ${error instanceof Error ? error.message : String(error)}`, {
+            eventType,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
       });
     }
   }
 
-  /**
-   * 日志记录
-   */
-  private log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void {
-    if (!this.config.logging) return;
-    
-    const levels = { debug: 0, info: 1, warn: 2, error: 3 };
-    const configLevel = levels[this.config.logLevel || 'info'];
-    const messageLevel = levels[level];
-    
-    if (messageLevel >= configLevel) {
-      const timestamp = new Date().toISOString();
-      console[level](`[ToolHub ${level.toUpperCase()}] ${timestamp}: ${message}`);
-    }
-  }
 
   /**
    * 更新配置
@@ -349,12 +373,20 @@ export class ToolHub {
   updateConfig(newConfig: Partial<ToolHubConfig>): void {
     this.config = { ...this.config, ...newConfig };
     
+    // 更新日志器配置
+    if (newConfig.logging !== undefined || newConfig.logLevel !== undefined) {
+      this.logger.updateConfig({
+        enabled: newConfig.logging,
+        level: newConfig.logLevel
+      });
+    }
+    
     // 更新执行器缓存配置
     if (newConfig.cacheConfig) {
       this.executor.updateCacheConfig(newConfig.cacheConfig);
     }
     
-    this.log('info', '配置已更新');
+    this.logger.info('配置已更新', { updatedFields: Object.keys(newConfig) });
   }
 
   /**
@@ -376,7 +408,7 @@ export class ToolHub {
    */
   clearCache(): void {
     this.executor.clearCache();
-    this.log('info', '缓存已清空');
+    this.logger.info('缓存已清空');
   }
 
   /**
@@ -391,5 +423,100 @@ export class ToolHub {
    */
   getExecutor(): ToolExecutor {
     return this.executor;
+  }
+
+  // ==================== 适配器管理 ====================
+
+  /**
+   * 注册适配器
+   */
+  registerAdapter(name: string, adapter: FrameworkAdapter): void {
+    this.adapters.set(name, adapter);
+    this.logger.info(`适配器 "${name}" 已注册`, { adapterName: name });
+  }
+
+  /**
+   * 获取适配器
+   */
+  getAdapter(name: string): FrameworkAdapter | undefined {
+    return this.adapters.get(name);
+  }
+
+  /**
+   * 获取所有适配器
+   */
+  getAdapters(): Map<string, FrameworkAdapter> {
+    return new Map(this.adapters);
+  }
+
+  /**
+   * 设置默认适配器
+   */
+  setDefaultAdapter(name: string): boolean {
+    if (this.adapters.has(name)) {
+      this.defaultAdapter = name;
+      this.logger.info(`默认适配器已设置为 "${name}"`, { adapterName: name });
+      return true;
+    }
+    this.logger.warn(`适配器 "${name}" 不存在`, { adapterName: name });
+    return false;
+  }
+
+  /**
+   * 获取默认适配器
+   */
+  getDefaultAdapter(): FrameworkAdapter | undefined {
+    return this.adapters.get(this.defaultAdapter);
+  }
+
+  // ==================== 工具导出功能 ====================
+
+  /**
+   * 导出工具为指定格式
+   */
+  exportTools(format: string = 'langchain', options: ToolConversionOptions = {}): any[] {
+    const adapter = this.adapters.get(format);
+    if (!adapter) {
+      throw new Error(`不支持的导出格式: ${format}`);
+    }
+
+    const tools = this.registry.getEnabled();
+    const convertedTools = adapter.convertTools(tools);
+    
+    return convertedTools;
+  }
+
+  /**
+   * 导出单个工具为指定格式
+   */
+  exportTool(toolName: string, format: string = 'langchain', options: ToolConversionOptions = {}): any | null {
+    const tool = this.registry.get(toolName);
+    if (!tool) {
+      this.logger.warn(`工具 "${toolName}" 不存在`, { toolName });
+      return null;
+    }
+
+    const adapter = this.adapters.get(format);
+    if (!adapter) {
+      throw new Error(`不支持的导出格式: ${format}`);
+    }
+
+    const convertedTool = adapter.convertTool(tool);
+
+    return convertedTool;
+  }
+
+  /**
+   * 获取支持的导出格式
+   */
+  getSupportedFormats(): string[] {
+    return Array.from(this.adapters.keys());
+  }
+
+  /**
+   * 验证导出格式
+   */
+  isFormatSupported(format: string): boolean {
+    return this.adapters.has(format);
   }
 }

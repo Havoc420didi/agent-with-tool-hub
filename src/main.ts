@@ -7,7 +7,6 @@ import cors from 'koa-cors';
 import json from 'koa-json';
 import { config } from 'dotenv';
 import { resolve } from 'path';
-import fs from 'fs';
 
 // 加载环境变量
 config({ path: resolve(process.cwd(), './config.env') });

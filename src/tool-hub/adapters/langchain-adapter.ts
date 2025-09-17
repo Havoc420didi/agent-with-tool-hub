@@ -5,8 +5,6 @@ import { z } from 'zod';
 import { 
   FrameworkAdapter, 
   AdapterConfig, 
-  ToolConversionOptions,
-  FrameworkTool 
 } from '../types/adapter.types';
 import { ToolConfig, ToolResult } from '../types/tool.types';
 
@@ -156,20 +154,8 @@ export class LangChainAdapter implements FrameworkAdapter {
   private getToolMetadata(config: ToolConfig): Record<string, any> {
     const metadata: Record<string, any> = {};
 
-    if (config.category) {
-      metadata.category = config.category;
-    }
-
     if (config.tags) {
       metadata.tags = config.tags;
-    }
-
-    if (config.version) {
-      metadata.version = config.version;
-    }
-
-    if (config.author) {
-      metadata.author = config.author;
     }
 
     if (config.config) {

@@ -2,9 +2,9 @@
 
 import Router from 'koa-router';
 import { AgentBuilder } from '../core/agent-builder';
-import { createToolHubWithPresets } from '../tool-hub/index';
+import { createToolHub, createToolHubWithPresets } from '../tool-hub/index';
 import { ToolExecutionMode } from '../core/types';
-import { LangChainAdapter } from '../tool-hub/adapters/langchain-adapter';
+import { WestoreCafeTools } from '../../examples/tool-demo/westore-cafe-tools';
 
 const router = new Router({ prefix: '/api' });
 
@@ -41,7 +41,7 @@ router.post('/chat', async (ctx) => {
       // 工具关系配置
       toolRelations = {},
       // 工具执行模式配置
-      toolExecution = {
+      toolExecutionConfig = {
         mode: ToolExecutionMode.INTERNAL,
         internalConfig: {
           enableCache: true,
@@ -53,7 +53,7 @@ router.post('/chat', async (ctx) => {
       config = {}
     } = ctx.request.body as any;
 
-    if (!message) {
+    if (!message) {  // TODO 主要就是暴露一个 API 测试 tool-hub，req 返回体简单处理了；
       ctx.status = 400;
       ctx.body = {
         success: false,
@@ -65,34 +65,21 @@ router.post('/chat', async (ctx) => {
       return;
     }
 
-    // 创建 ToolHub
-    const toolHub = await createToolHubWithPresets(toolHubConfig);
+    // TEST 预定义 westore-cafe 工具
+    const westoreTools = WestoreCafeTools.getAll();
     
-    // 注册自定义工具
-    if (tools && tools.length > 0) {
-      const registerResult = toolHub.registerBatch(tools);
-      if (registerResult.failed > 0) {
-        console.warn(`部分工具注册失败: ${registerResult.failed} 个`);
-      }
-    }
-
     // 创建 Agent
     const agent = new AgentBuilder({
       model,
       memory,
       streaming,
-      toolExecution,
-      ...config
+      tools: westoreTools,
+      toolExecutionConfig,
+      // toolRelations,
     });
     
-    // 异步初始化 Agent
-    await agent.initialize();
-
-    // 处理工具关系（如果需要）
-    if (Object.keys(toolRelations).length > 0) {
-      // 这里可以添加工具关系处理逻辑
-      console.log('工具关系配置:', toolRelations);
-    }
+    // 初始化 Agent
+    agent.initialize();
 
     // 执行聊天
     let result;

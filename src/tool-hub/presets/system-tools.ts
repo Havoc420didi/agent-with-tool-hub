@@ -1,7 +1,7 @@
 // system-tools.ts - 系统工具集合
 
 import { z } from 'zod';
-import { ToolConfig } from '../types/tool.types';
+import { ToolConfig, ToolPermissionLevel, ToolSecurityLevel, createToolConfig } from '../types/tool.types';
 import { ToolHelpers } from '../utils/helpers';
 
 /**
@@ -12,7 +12,7 @@ export class SystemTools {
    * 获取系统信息
    */
   static getSystemInfo(): ToolConfig {
-    return {
+    return createToolConfig({
       name: 'get_system_info',
       description: '获取系统信息',
       schema: z.object({
@@ -72,16 +72,17 @@ export class SystemTools {
           );
         }
       },
-      category: 'system',
-      tags: ['system', 'info', 'monitoring']
-    };
+      tags: ['system', 'info', 'monitoring'],
+      permissionLevel: ToolPermissionLevel.PUBLIC,
+      securityLevel: ToolSecurityLevel.AUTO
+    });
   }
 
   /**
    * 文件操作工具
    */
   static fileOperation(): ToolConfig {
-    return {
+    return createToolConfig({
       name: 'file_operation',
       description: '执行文件操作',
       schema: z.object({
@@ -139,16 +140,17 @@ export class SystemTools {
           );
         }
       },
-      category: 'system',
-      tags: ['file', 'system', 'io']
-    };
+      tags: ['file', 'io', 'filesystem'],
+      permissionLevel: ToolPermissionLevel.PUBLIC,
+      securityLevel: ToolSecurityLevel.HUMAN
+    });
   }
 
   /**
    * 环境变量工具
    */
   static environment(): ToolConfig {
-    return {
+    return createToolConfig({
       name: 'environment',
       description: '获取或设置环境变量',
       schema: z.object({
@@ -198,16 +200,17 @@ export class SystemTools {
           );
         }
       },
-      category: 'system',
-      tags: ['environment', 'system', 'config']
-    };
+      tags: ['environment', 'config', 'system'],
+      permissionLevel: ToolPermissionLevel.ADMIN,
+      securityLevel: ToolSecurityLevel.HUMAN
+    });
   }
 
   /**
    * 日志工具
    */
   static logging(): ToolConfig {
-    return {
+    return createToolConfig({
       name: 'logging',
       description: '记录日志信息',
       schema: z.object({
@@ -240,16 +243,17 @@ export class SystemTools {
           );
         }
       },
-      category: 'system',
-      tags: ['logging', 'system', 'debug']
-    };
+      tags: ['logging', 'debug', 'monitoring'],
+      permissionLevel: ToolPermissionLevel.PUBLIC,
+      securityLevel: ToolSecurityLevel.AUTO
+    });
   }
 
   /**
    * 进程管理工具
    */
   static processManagement(): ToolConfig {
-    return {
+    return createToolConfig({
       name: 'process_management',
       description: '管理进程',
       schema: z.object({
@@ -301,9 +305,10 @@ export class SystemTools {
           );
         }
       },
-      category: 'system',
-      tags: ['process', 'system', 'management']
-    };
+      tags: ['process', 'management', 'system'],
+      permissionLevel: ToolPermissionLevel.ADMIN,
+      securityLevel: ToolSecurityLevel.HUMAN
+    });
   }
 
   /**
@@ -319,15 +324,9 @@ export class SystemTools {
     ];
   }
 
-  /**
-   * 按分类获取工具
-   */
-  static getByCategory(category: string): ToolConfig[] {
-    return this.getAll().filter(tool => tool.category === category);
-  }
 
   /**
-   * 按标签获取工具
+   * 按标签获取工具  // 暂时好像没什么用
    */
   static getByTag(tag: string): ToolConfig[] {
     return this.getAll().filter(tool => tool.tags?.includes(tag));

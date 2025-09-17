@@ -5,10 +5,10 @@ import { resolve } from 'path';
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { EnhancedToolNode } from './enhanced-tool-node';
 import { StateGraph, MessagesAnnotation, END, START } from "@langchain/langgraph";
 import { MemorySaver } from "@langchain/langgraph";
-import { createToolHubWithPresets } from '../tool-hub/index';
-import { LangChainAdapter } from '../tool-hub/adapters/langchain-adapter';
+import ToolHub, { createToolHub } from '../tool-hub/index';
 import { 
   AgentConfig, 
   AgentState, 
@@ -27,8 +27,7 @@ import {
 config({ path: resolve(process.cwd(), './config.env') });
 
 export class AgentBuilder {
-  private toolHub: any;
-  private adapter: LangChainAdapter;
+  private toolHub!: ToolHub;
   private config: AgentConfig;
   private model!: ChatOpenAI;
   private toolNode!: ToolNode;
@@ -40,19 +39,16 @@ export class AgentBuilder {
 
   constructor(config: AgentConfig) {
     this.config = config;
-    this.toolHub = null; // 将在异步初始化中设置
-    this.adapter = new LangChainAdapter();
     this.initializeModel();
-    this.initializeMemory();
-    // buildWorkflow 将在 initialize() 中调用
+    this.initializeMemory(); // TODO ？
   }
 
   /**
    * 异步初始化
    */
-  async initialize(): Promise<void> {
-    this.toolHub = await createToolHubWithPresets();
-    this.initializeToolExecutionStrategy();
+  initialize(): void {
+    this.toolHub = createToolHub();
+    this.initializeToolExecutionStrategy(); // TODO
     this.initializeTools();
     this.buildWorkflow();
   }
@@ -62,7 +58,7 @@ export class AgentBuilder {
    */
   private initializeToolExecutionStrategy(): void {
     // 默认使用内部执行模式
-    const toolExecutionConfig = this.config.toolExecution || {
+    const toolExecutionConfig = this.config.toolExecutionConfig || {
       mode: ToolExecutionMode.INTERNAL,
       internalConfig: {
         enableCache: true,
@@ -71,9 +67,12 @@ export class AgentBuilder {
       }
     };
 
-    this.toolExecutionStrategy = ToolExecutionStrategyFactory.createStrategy(toolExecutionConfig);
+    // 为内部执行模式提供 ToolExecutor 实例
+    const toolExecutor = this.toolHub.getExecutor();
+    this.toolExecutionStrategy = ToolExecutionStrategyFactory.createStrategy(toolExecutionConfig, toolExecutor);
     this.toolCallManager = new ToolCallManager(this.toolExecutionStrategy);
   }
+
 
   /**
    * 初始化模型
@@ -98,18 +97,21 @@ export class AgentBuilder {
       this.toolHub.registerBatch(this.config.tools);
     }
 
-    // 转换工具为 LangChain 格式
-    const langchainTools = this.adapter.convertTools(this.toolHub.getEnabled());
+    // 使用 ToolHub 导出工具为 LangChain 格式
+    const langchainTools = this.toolHub.exportTools('langchain');
 
     // 绑定工具到模型
     this.model = this.model.bindTools(langchainTools) as ChatOpenAI;
-    
-    // 创建工具节点
-    this.toolNode = new ToolNode(langchainTools);
+
+    // 创建增强的工具节点
+    this.toolNode = new EnhancedToolNode(
+      langchainTools,
+      this.config.toolExecutionConfig?.mode || ToolExecutionMode.INTERNAL
+    );
   }
 
   /**
-   * 初始化内存
+   * 初始化内存 // TODO LG 的 Mem 机制？
    */
   private initializeMemory(): void {
     if (this.config.memory?.enabled) {
@@ -151,6 +153,7 @@ export class AgentBuilder {
       }
 
       const toolMessages: ToolMessage[] = [];
+      const executionMode = this.config.toolExecutionConfig?.mode || ToolExecutionMode.INTERNAL;
 
       for (const toolCall of lastMessage.tool_calls) {
         try {
@@ -163,23 +166,29 @@ export class AgentBuilder {
           );
 
           // 获取工具配置
-          const toolConfig = this.toolHub.getTool(toolCall.name);
+          const toolConfig = this.toolHub.get(toolCall.name);
           if (!toolConfig) {
             throw new Error(`工具 ${toolCall.name} 未找到`);
           }
 
-          // 根据执行模式处理工具调用
-          if (this.config.toolExecution?.mode === ToolExecutionMode.OUTSIDE) {
-            // 外部执行模式：只创建工具调用信息，不实际执行
+          console.log(`🔧 工具执行模式: ${toolCall.name} -> ${executionMode}`);
+
+          // 直接根据 mode 字段控制执行方式
+          if (executionMode === ToolExecutionMode.OUTSIDE) {
+            // 外部执行模式：下发工具调用到请求端
             toolCallInfo.status = 'pending';
             
-            // 创建工具消息，但不包含执行结果
+            // 创建工具消息，包含工具调用信息供外部执行
             const toolMessage = new ToolMessage({
               content: JSON.stringify({
                 toolCallId: toolCall.id,
                 toolName: toolCall.name,
+                toolArgs: toolCall.args,
                 status: 'pending',
-                message: '工具调用已下发，等待外部执行'
+                message: '工具调用已下发，等待外部执行',
+                executionMode: 'outside',
+                waitForResult: this.config.toolExecutionConfig?.outsideConfig?.waitForResult ?? true,
+                timeout: this.config.toolExecutionConfig?.outsideConfig?.timeout ?? 30000
               }),
               tool_call_id: toolCall.id || 'unknown',
             });
@@ -196,7 +205,10 @@ export class AgentBuilder {
             // 创建工具消息
             const toolMessage = new ToolMessage({
               content: result.success 
-                ? JSON.stringify(result.result) 
+                ? JSON.stringify({
+                    result: result.result,
+                    executionMode: 'internal'
+                  }) 
                 : `工具执行失败: ${result.error || '未知错误'}`,
               tool_call_id: toolCall.id || 'unknown',
             });
@@ -221,12 +233,13 @@ export class AgentBuilder {
     // 创建状态图
     this.workflow = new StateGraph(MessagesAnnotation)
       .addNode("agent", callModel)
-      .addNode("tools", executeTools)
+      .addNode("tools", this.toolNode)
       .addEdge(START, "agent")
       .addConditionalEdges("agent", shouldContinue, ["tools", END])
       .addEdge("tools", "agent");
 
     // 编译工作流
+    // INFO 
     const compileOptions: any = {};
     if (this.checkpointer) {
       compileOptions.checkpointer = this.checkpointer;
@@ -265,8 +278,8 @@ export class AgentBuilder {
       }
     });
     
-    // 转换工具为 LangChain 格式
-    const langchainTools = this.adapter.convertTools(this.toolHub.getEnabled());
+    // 使用 ToolHub 导出工具为 LangChain 格式
+    const langchainTools = this.toolHub.exportTools('langchain');
     this.model = baseModel.bindTools(langchainTools) as ChatOpenAI;
 
     // 重新创建工具节点
@@ -376,6 +389,10 @@ export class AgentBuilder {
    * 获取待执行的工具调用（外部执行模式）
    */
   getPendingToolCalls(): ToolCallInfo[] {
+    // 优先从增强工具节点获取
+    if (this.toolNode instanceof EnhancedToolNode) {
+      return this.toolNode.getPendingToolCalls();
+    }
     return this.toolCallManager.getPendingToolCalls();
   }
 
@@ -383,10 +400,74 @@ export class AgentBuilder {
    * 处理外部工具执行结果
    */
   async handleOutsideToolResult(toolCallId: string, result: any): Promise<void> {
-    const toolCall = this.toolCallManager.getPendingToolCalls().find(tc => tc.id === toolCallId);
-    if (toolCall) {
-      await this.toolCallManager.handleToolCallResult(toolCall, result);
+    // 优先使用增强工具节点
+    if (this.toolNode instanceof EnhancedToolNode) {
+      this.toolNode.handleExternalToolResult(toolCallId, result);
+    } else {
+      const toolCall = this.toolCallManager.getPendingToolCalls().find(tc => tc.id === toolCallId);
+      if (toolCall) {
+        await this.toolCallManager.handleToolCallResult(toolCall, result);
+      }
     }
+  }
+
+  /**
+   * 获取工具执行统计
+   */
+  getToolExecutionStats(): any {
+    if (this.toolNode instanceof EnhancedToolNode) {
+      return this.toolNode.getExecutionStats();
+    }
+    return {
+      executionMode: this.config.toolExecutionConfig?.mode || ToolExecutionMode.INTERNAL,
+      pendingCalls: this.toolCallManager.getPendingToolCalls().length
+    };
+  }
+
+  /**
+   * 清除待执行的工具调用
+   */
+  clearPendingToolCalls(): void {
+    if (this.toolNode instanceof EnhancedToolNode) {
+      this.toolNode.clearPendingToolCalls();
+    }
+  }
+
+
+  /**
+   * 手动设置工具执行模式
+   */
+  setToolExecutionMode(mode: ToolExecutionMode): void {
+    if (this.config.toolExecutionConfig) {
+      this.config.toolExecutionConfig.mode = mode;
+    } else {
+      this.config.toolExecutionConfig = { mode };
+    }
+    
+    // 重新初始化工具执行策略
+    this.initializeToolExecutionStrategy();
+  }
+
+  /**
+   * 设置外部执行配置
+   */
+  setOutsideConfig(config: { waitForResult?: boolean; timeout?: number; callbackUrl?: string }): void {
+    if (!this.config.toolExecutionConfig) {
+      this.config.toolExecutionConfig = { mode: ToolExecutionMode.INTERNAL };
+    }
+    
+    this.config.toolExecutionConfig.outsideConfig = config;
+  }
+
+  /**
+   * 设置内部执行配置
+   */
+  setInternalConfig(config: { enableCache?: boolean; cacheTtl?: number; maxRetries?: number }): void {
+    if (!this.config.toolExecutionConfig) {
+      this.config.toolExecutionConfig = { mode: ToolExecutionMode.INTERNAL };
+    }
+    
+    this.config.toolExecutionConfig.internalConfig = config;
   }
 
   /**
@@ -400,7 +481,7 @@ export class AgentBuilder {
    * 切换工具执行模式
    */
   async switchToolExecutionMode(config: any): Promise<void> {
-    this.config.toolExecution = config;
+    this.config.toolExecutionConfig = config;
     this.initializeToolExecutionStrategy();
     this.buildWorkflow();
   }

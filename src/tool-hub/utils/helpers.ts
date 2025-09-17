@@ -70,7 +70,6 @@ export class ToolHelpers {
   static cloneToolConfig(config: ToolConfig): ToolConfig {
     return {
       ...config,
-      tags: config.tags ? [...config.tags] : undefined,
       config: config.config ? { ...config.config } : undefined
     };
   }
@@ -223,7 +222,6 @@ export class ToolHelpers {
         
         return ToolHelpers.createSuccessResult(results);
       },
-      category: 'composed',
       tags: ['composed', 'multi-tool']
     };
   }
@@ -244,7 +242,6 @@ export class ToolHelpers {
         const selectedTool = condition(input) ? trueTool : falseTool;
         return await selectedTool.handler(input);
       },
-      category: 'conditional',
       tags: ['conditional', 'branching']
     };
   }

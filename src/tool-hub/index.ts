@@ -9,8 +9,10 @@ export * from './types/index';
 // 适配器
 export * from './adapters/index';
 
-// 工具函数
-export * from './utils/index';
+// 工具函数 - 显式重新导出以避免命名冲突
+export * from './utils/validation';
+export * from './utils/conversion';
+export * from './utils/helpers';
 
 // 预设工具
 export * from './presets/index';
@@ -35,18 +37,6 @@ export async function createToolHubWithPresets(config?: ToolHubConfig): Promise<
   const presetTools = await getAllPresetTools();
   hub.registerBatch(presetTools);
   return hub;
-}
-
-/**
- * 创建轻量级 ToolHub 实例（仅包含核心功能）
- */
-export function createLightweightToolHub(config?: ToolHubConfig): ToolHub {
-  return new ToolHub({
-    ...config,
-    caching: false,
-    statistics: false,
-    logging: false
-  });
 }
 
 // 默认导出

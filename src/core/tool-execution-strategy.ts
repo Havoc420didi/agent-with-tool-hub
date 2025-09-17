@@ -38,12 +38,9 @@ export class InternalExecutionStrategy implements ToolExecutionStrategy {
   private toolExecutor: ToolExecutor;
   private config: ToolExecutionConfig['internalConfig'];
 
-  constructor(config?: ToolExecutionConfig['internalConfig']) {
+  constructor(toolExecutor: ToolExecutor, config?: ToolExecutionConfig['internalConfig']) {
+    this.toolExecutor = toolExecutor;
     this.config = config || {};
-    this.toolExecutor = new ToolExecutor({
-      ttl: this.config.cacheTtl || 300000, // 默认5分钟
-      maxSize: 1000
-    });
   }
 
   async executeToolCall(
@@ -55,12 +52,12 @@ export class InternalExecutionStrategy implements ToolExecutionStrategy {
       // 更新工具调用状态
       toolCall.status = 'executing';
       
-      // 使用工具执行器执行工具
+      // 使用工具执行器执行工具，传递配置参数
       const result = await this.toolExecutor.execute(
         toolConfig,
         toolCall.args,
         {
-          retries: this.config.maxRetries || 0,
+          retries: this.config?.maxRetries || 0,
           context: {
             executionId: toolCall.id,
             userId: context?.userId,
@@ -133,7 +130,7 @@ export class OutsideExecutionStrategy implements ToolExecutionStrategy {
       this.pendingToolCalls.set(toolCall.id, toolCall);
       
       // 如果是等待结果的模式，则等待外部执行完成
-      if (this.config.waitForResult) {
+      if (this.config?.waitForResult) {
         return await this.waitForOutsideExecution(toolCall);
       } else {
         // 不等待结果，直接返回工具调用信息
@@ -174,7 +171,7 @@ export class OutsideExecutionStrategy implements ToolExecutionStrategy {
    * 等待外部执行完成
    */
   private async waitForOutsideExecution(toolCall: ToolCallInfo): Promise<ToolCallResult> {
-    const timeout = this.config.timeout || 30000; // 默认30秒超时
+    const timeout = this.config?.timeout || 30000; // 默认30秒超时
     const startTime = Date.now();
 
     return new Promise((resolve) => {
@@ -245,10 +242,16 @@ export class OutsideExecutionStrategy implements ToolExecutionStrategy {
  * 工具执行策略工厂
  */
 export class ToolExecutionStrategyFactory {
-  static createStrategy(config: ToolExecutionConfig): ToolExecutionStrategy {
+  static createStrategy(
+    config: ToolExecutionConfig, 
+    toolExecutor?: ToolExecutor
+  ): ToolExecutionStrategy {
     switch (config.mode) {
       case ToolExecutionMode.INTERNAL:
-        return new InternalExecutionStrategy(config.internalConfig);
+        if (!toolExecutor) {
+          throw new Error('内部执行模式需要提供 ToolExecutor 实例');
+        }
+        return new InternalExecutionStrategy(toolExecutor, config.internalConfig);
       case ToolExecutionMode.OUTSIDE:
         return new OutsideExecutionStrategy(config.outsideConfig);
       default:
@@ -266,6 +269,17 @@ export class ToolCallManager {
 
   constructor(strategy: ToolExecutionStrategy) {
     this.strategy = strategy;
+  }
+
+  /**
+   * 创建工具调用管理器
+   */
+  static create(
+    config: ToolExecutionConfig, 
+    toolExecutor?: ToolExecutor
+  ): ToolCallManager {
+    const strategy = ToolExecutionStrategyFactory.createStrategy(config, toolExecutor);
+    return new ToolCallManager(strategy);
   }
 
   /**

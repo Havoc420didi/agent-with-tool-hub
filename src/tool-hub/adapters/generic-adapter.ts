@@ -39,10 +39,7 @@ export class GenericAdapter implements FrameworkAdapter {
       },
       schema: config.schema,
       metadata: {
-        category: config.category,
         tags: config.tags,
-        version: config.version,
-        author: config.author,
         enabled: config.enabled !== false,
         ...config.config
       }
@@ -243,16 +240,8 @@ export class OpenAIAdapter implements FrameworkAdapter {
   private getToolMetadata(config: ToolConfig): Record<string, any> {
     const metadata: Record<string, any> = {};
 
-    if (config.category) {
-      metadata.category = config.category;
-    }
-
     if (config.tags) {
       metadata.tags = config.tags;
-    }
-
-    if (config.version) {
-      metadata.version = config.version;
     }
 
     return metadata;

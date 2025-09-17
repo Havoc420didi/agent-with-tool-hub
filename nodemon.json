@@ -1,17 +1,8 @@
 {
   "watch": [
-    "src/**/*",
-    "config.env",
-    "package.json"
+    "src/**/*"
   ],
-  "ext": "ts,js,json,env",
-  "ignore": [
-    "node_modules/**/*",
-    "dist/**/*",
-    "tests/**/*",
-    "docs/**/*",
-    "examples/**/*"
-  ],
+  "ext": "ts,js,json,env,mts",
   "exec": "tsx src/main.ts",
   "env": {
     "NODE_ENV": "development"
@@ -19,7 +10,5 @@
   "delay": 1000,
   "verbose": true,
   "restartable": "rs",
-  "colours": true,
-  "signal": "SIGTERM",
-  "stdout": true
+  "colours": true
 }

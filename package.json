@@ -4,20 +4,11 @@
   "description": "基于 Koa.js + TypeScript + Rspack 的 LangGraph Agent 框架",
   "type": "module",
   "scripts": {
-    "dev": "VERBOSE_LOGS=true tsx scripts/dev.mts",
-    "dev:quiet": "QUIET_LOGS=true tsx scripts/dev.mts",
-
+    "dev": "npx nodemon",
     "build": "tsc",
     "build:rspack": "npx rspack build --mode production",
-    
     "start": "tsx src/main.ts",
     "start:dist": "node dist/main.js",
-
-    "test": "tsx tests/run-tests.mts",
-    "test:simple": "tsx tests/test-simple-tool-hub.mts",
-    "test:toolhub": "tsx tests/test-tool-hub.mts",
-    "test:integration": "tsx tests/test-agent-integration.mts",
-    "test:tool-modes": "tsx tests/test-tool-execution-modes.mts",
     "demo": "tsx examples/demo.mts",
     "demo:tool-modes": "tsx examples/tool-execution-modes.mts"
   },
@@ -48,6 +39,8 @@
     "@types/koa-router": "^7.4.4",
     "@types/node": "^20.0.0",
     "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }

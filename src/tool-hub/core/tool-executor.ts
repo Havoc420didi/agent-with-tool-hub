@@ -174,7 +174,7 @@ export class ToolExecutor {
    * 生成执行ID
    */
   private generateExecutionId(): string {
-    return `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `exec_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 
   /**
