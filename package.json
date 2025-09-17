@@ -9,8 +9,8 @@
     "build:rspack": "npx rspack build --mode production",
     "start": "tsx src/main.ts",
     "start:dist": "node dist/main.js",
-    "demo": "tsx examples/demo.mts",
-    "demo:tool-modes": "tsx examples/tool-execution-modes.mts"
+    "test": "tsx tests/test-chat.mts",
+    "test:quick": "tsx tests/test-quick-chat.mts"
   },
   "dependencies": {
     "@langchain/community": "^0.3.55",

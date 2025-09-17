@@ -84,34 +84,79 @@ router.post('/chat', async (ctx) => {
     // 执行聊天
     let result;
     if (streaming) {
+      console.log('开始流式响应处理...');
+      
+      // 设置状态码为 200
+      ctx.status = 200;
+      
       // 流式响应
       ctx.set({
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
       });
 
-      const stream = agent.stream(message, threadId);
-      
-      for await (const chunk of stream) {
-        ctx.res.write(`data: ${JSON.stringify({
-          type: 'content',
-          data: chunk,
-          timestamp: new Date().toISOString(),
-          threadId: threadId || 'default'
-        })}\n\n`);
+      try {
+        console.log('创建流式流...');
+        const stream = agent.stream(message, threadId);
+        console.log('流式流创建成功，开始处理数据块...');
+        
+        for await (const chunk of stream) {
+          if (ctx.res.writableEnded) {
+            console.log('响应已结束，停止写入');
+            break; // 如果响应已经结束，停止写入
+          }
+          
+          console.log('处理数据块:', JSON.stringify(chunk, null, 2));
+          
+          const data = {
+            type: 'content',
+            data: chunk,
+            timestamp: new Date().toISOString(),
+            threadId: threadId || 'default'
+          };
+          
+          ctx.res.write(`data: ${JSON.stringify(data)}\n\n`);
+        }
+        
+        // 发送结束信号
+        if (!ctx.res.writableEnded) {
+          console.log('发送结束信号...');
+          const endData = {
+            type: 'done',
+            data: { success: true },
+            timestamp: new Date().toISOString(),
+            threadId: threadId || 'default'
+          };
+          ctx.res.write(`data: ${JSON.stringify(endData)}\n\n`);
+          ctx.res.end();
+        }
+        
+        console.log('流式响应处理完成');
+        return;
+      } catch (streamError) {
+        console.error('流式响应错误:', streamError);
+        console.error('错误堆栈:', streamError instanceof Error ? streamError.stack : '无堆栈信息');
+        
+        // 发送错误信号
+        if (!ctx.res.writableEnded) {
+          const errorData = {
+            type: 'error',
+            data: { 
+              success: false, 
+              error: streamError instanceof Error ? streamError.message : '流式响应失败' 
+            },
+            timestamp: new Date().toISOString(),
+            threadId: threadId || 'default'
+          };
+          ctx.res.write(`data: ${JSON.stringify(errorData)}\n\n`);
+          ctx.res.end();
+        }
+        return;
       }
-      
-      ctx.res.write(`data: ${JSON.stringify({
-        type: 'done',
-        data: { success: true },
-        timestamp: new Date().toISOString(),
-        threadId: threadId || 'default'
-      })}\n\n`);
-      
-      ctx.res.end();
-      return;
     } else {
       // 普通响应
       result = await agent.invoke(message, threadId);

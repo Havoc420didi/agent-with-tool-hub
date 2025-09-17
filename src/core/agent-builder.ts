@@ -139,7 +139,7 @@ export class AgentBuilder {
       return { messages: [response] };
     };
 
-    // 创建状态图
+    // 创建状态图 // INFO 非常简单的状态图，只有 agent 和 tools 两个节点。
     this.workflow = new StateGraph(MessagesAnnotation)
       .addNode("agent", callModel)
       .addNode("tools", this.toolNode)
@@ -147,8 +147,7 @@ export class AgentBuilder {
       .addConditionalEdges("agent", shouldContinue, ["tools", END])
       .addEdge("tools", "agent");
 
-    // 编译工作流
-    // INFO 
+    // 编译工作流  // INFO checkpointer 是 LG 提供了的记录 agent 状态的机制。
     const compileOptions: any = {};
     if (this.checkpointer) {
       compileOptions.checkpointer = this.checkpointer;
@@ -241,33 +240,49 @@ export class AgentBuilder {
   }
 
   /**
-   * 流式调用 agent
+   * 流式调用 agent  // TODO stream 的粒度效果还是不太好。
    */
   async *stream(message: string, threadId?: string): AsyncGenerator<AgentResponse, void, unknown> {
-    const config: any = {};
-    if (this.checkpointer) {
-      // 如果启用了内存，必须提供 thread_id
-      config.configurable = { thread_id: threadId || 'default' };
-    }
-
-    const stream = await this.app.stream(
-      {
-        messages: [new HumanMessage(message)],
-      },
-      {
-        ...config,
-        streamMode: "values"
-      }
-    );
-
+    // 使用 LangChain 的流式调用，尝试获得更细粒度的流式响应
+    const stream = await this.model.stream([new HumanMessage(message)]);
+    
+    let fullContent = '';
+    let buffer = '';
+    
     for await (const chunk of stream) {
-      const lastMessage = chunk.messages[chunk.messages.length - 1] as AIMessage;
-      
+      if (chunk.content) {
+        const content = typeof chunk.content === 'string' ? chunk.content : '';
+        fullContent += content;
+        
+        // 尝试将内容分割成更小的块来模拟字符级流式
+        buffer += content;
+        
+        // 按句子或短语分割，而不是按字符分割（避免过于频繁的更新）
+        const sentences = buffer.split(/([。！？\n])/);
+        if (sentences.length > 1) {
+          // 发送除了最后一个不完整句子之外的所有内容
+          const toSend = sentences.slice(0, -1).join('');
+          if (toSend) {
+            yield {
+              content: toSend,
+              metadata: {
+                isStreaming: true,
+                fullContent: fullContent
+              }
+            };
+            buffer = sentences[sentences.length - 1]; // 保留最后一个不完整的句子
+          }
+        }
+      }
+    }
+    
+    // 发送剩余的内容
+    if (buffer) {
       yield {
-        content: typeof lastMessage.content === 'string' ? lastMessage.content : '',
+        content: buffer,
         metadata: {
-          totalMessages: chunk.messages.length,
-          isStreaming: true
+          isStreaming: true,
+          fullContent: fullContent
         }
       };
     }
