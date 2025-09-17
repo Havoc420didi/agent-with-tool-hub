@@ -5,7 +5,6 @@ import { resolve } from 'path';
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { EnhancedToolNode } from './enhanced-tool-node';
 import { StateGraph, MessagesAnnotation, END, START } from "@langchain/langgraph";
 import { MemorySaver } from "@langchain/langgraph";
 import ToolHub, { createToolHub } from '../tool-hub/index';
@@ -103,11 +102,8 @@ export class AgentBuilder {
     // 绑定工具到模型
     this.model = this.model.bindTools(langchainTools) as ChatOpenAI;
 
-    // 创建增强的工具节点
-    this.toolNode = new EnhancedToolNode(
-      langchainTools,
-      this.config.toolExecutionConfig?.mode || ToolExecutionMode.INTERNAL
-    );
+    // 创建工具节点
+    this.toolNode = new ToolNode(langchainTools);
   }
 
   /**
@@ -128,8 +124,8 @@ export class AgentBuilder {
       const { messages } = state;
       const lastMessage = messages[messages.length - 1] as AIMessage;
       
-      // 如果 LLM 进行了工具调用，则路由到 "tools" 节点
-      if (lastMessage.tool_calls?.length) {
+      // 如果 LLM 进行了工具调用 & 内部执行模式，则路由到 "tools" 节点
+      if (lastMessage.tool_calls?.length && this.config.toolExecutionConfig?.mode === ToolExecutionMode.INTERNAL) {
         return "tools";
       }
       // 否则停止（回复用户）
@@ -141,93 +137,6 @@ export class AgentBuilder {
       const { messages } = state;
       const response = await this.model.invoke(messages);
       return { messages: [response] };
-    };
-
-    // 定义工具执行函数
-    const executeTools = async (state: AgentState) => {
-      const { messages } = state;
-      const lastMessage = messages[messages.length - 1] as AIMessage;
-      
-      if (!lastMessage.tool_calls?.length) {
-        return { messages: [] };
-      }
-
-      const toolMessages: ToolMessage[] = [];
-      const executionMode = this.config.toolExecutionConfig?.mode || ToolExecutionMode.INTERNAL;
-
-      for (const toolCall of lastMessage.tool_calls) {
-        try {
-          // 创建工具调用信息
-          const toolCallInfo = this.toolCallManager.createToolCall(
-            toolCall.name,
-            toolCall.args,
-            `调用工具: ${toolCall.name}`,
-            state.metadata?.threadId
-          );
-
-          // 获取工具配置
-          const toolConfig = this.toolHub.get(toolCall.name);
-          if (!toolConfig) {
-            throw new Error(`工具 ${toolCall.name} 未找到`);
-          }
-
-          console.log(`🔧 工具执行模式: ${toolCall.name} -> ${executionMode}`);
-
-          // 直接根据 mode 字段控制执行方式
-          if (executionMode === ToolExecutionMode.OUTSIDE) {
-            // 外部执行模式：下发工具调用到请求端
-            toolCallInfo.status = 'pending';
-            
-            // 创建工具消息，包含工具调用信息供外部执行
-            const toolMessage = new ToolMessage({
-              content: JSON.stringify({
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
-                toolArgs: toolCall.args,
-                status: 'pending',
-                message: '工具调用已下发，等待外部执行',
-                executionMode: 'outside',
-                waitForResult: this.config.toolExecutionConfig?.outsideConfig?.waitForResult ?? true,
-                timeout: this.config.toolExecutionConfig?.outsideConfig?.timeout ?? 30000
-              }),
-              tool_call_id: toolCall.id || 'unknown',
-            });
-            
-            toolMessages.push(toolMessage);
-          } else {
-            // 内部执行模式：直接执行工具
-            const result = await this.toolCallManager.executeToolCall(
-              toolCallInfo,
-              toolConfig,
-              state.metadata
-            );
-
-            // 创建工具消息
-            const toolMessage = new ToolMessage({
-              content: result.success 
-                ? JSON.stringify({
-                    result: result.result,
-                    executionMode: 'internal'
-                  }) 
-                : `工具执行失败: ${result.error || '未知错误'}`,
-              tool_call_id: toolCall.id || 'unknown',
-            });
-            
-            toolMessages.push(toolMessage);
-          }
-
-        } catch (error) {
-          // 创建错误消息
-          const toolMessage = new ToolMessage({
-            content: `工具执行错误: ${error instanceof Error ? error.message : String(error)}`,
-            tool_call_id: toolCall.id || 'unknown',
-          });
-          
-          toolMessages.push(toolMessage);
-        }
-      }
-
-      return { messages: toolMessages };
     };
 
     // 创建状态图
@@ -389,10 +298,6 @@ export class AgentBuilder {
    * 获取待执行的工具调用（外部执行模式）
    */
   getPendingToolCalls(): ToolCallInfo[] {
-    // 优先从增强工具节点获取
-    if (this.toolNode instanceof EnhancedToolNode) {
-      return this.toolNode.getPendingToolCalls();
-    }
     return this.toolCallManager.getPendingToolCalls();
   }
 
@@ -400,14 +305,9 @@ export class AgentBuilder {
    * 处理外部工具执行结果
    */
   async handleOutsideToolResult(toolCallId: string, result: any): Promise<void> {
-    // 优先使用增强工具节点
-    if (this.toolNode instanceof EnhancedToolNode) {
-      this.toolNode.handleExternalToolResult(toolCallId, result);
-    } else {
-      const toolCall = this.toolCallManager.getPendingToolCalls().find(tc => tc.id === toolCallId);
-      if (toolCall) {
-        await this.toolCallManager.handleToolCallResult(toolCall, result);
-      }
+    const toolCall = this.toolCallManager.getPendingToolCalls().find(tc => tc.id === toolCallId);
+    if (toolCall) {
+      await this.toolCallManager.handleToolCallResult(toolCall, result);
     }
   }
 
@@ -415,9 +315,6 @@ export class AgentBuilder {
    * 获取工具执行统计
    */
   getToolExecutionStats(): any {
-    if (this.toolNode instanceof EnhancedToolNode) {
-      return this.toolNode.getExecutionStats();
-    }
     return {
       executionMode: this.config.toolExecutionConfig?.mode || ToolExecutionMode.INTERNAL,
       pendingCalls: this.toolCallManager.getPendingToolCalls().length
@@ -428,9 +325,8 @@ export class AgentBuilder {
    * 清除待执行的工具调用
    */
   clearPendingToolCalls(): void {
-    if (this.toolNode instanceof EnhancedToolNode) {
-      this.toolNode.clearPendingToolCalls();
-    }
+    // 使用 ToolCallManager 清除待执行的工具调用
+    this.toolCallManager.clearPendingToolCalls();
   }
 
 

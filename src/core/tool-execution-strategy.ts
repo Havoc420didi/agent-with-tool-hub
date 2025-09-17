@@ -233,6 +233,13 @@ export class OutsideExecutionStrategy implements ToolExecutionStrategy {
     }
   }
 
+  /**
+   * 清除待执行的工具调用
+   */
+  clearPendingToolCalls(): void {
+    this.pendingToolCalls.clear();
+  }
+
   getStrategyName(): string {
     return 'outside';
   }
@@ -340,5 +347,15 @@ export class ToolCallManager {
       return this.strategy.getPendingToolCalls();
     }
     return [];
+  }
+
+  /**
+   * 清除待执行的工具调用
+   */
+  clearPendingToolCalls(): void {
+    if (this.strategy instanceof OutsideExecutionStrategy) {
+      // 清空待执行的工具调用
+      this.strategy.clearPendingToolCalls();
+    }
   }
 }
