@@ -1,16 +1,16 @@
 // generic-adapter.ts - 通用适配器
 
 import { 
-  FrameworkAdapter, 
+  ToolDefineFrameworkAdapter, 
   AdapterConfig, 
   FrameworkTool 
-} from '../types/adapter.types';
-import { ToolConfig, ToolResult } from '../types/tool.types';
+} from '../../types/adapter-tool.types';
+import { ToolConfig, ToolResult } from '../../types/tool.types';
 
 /**
  * 通用适配器 - 适用于任何框架
  */
-export class GenericAdapter implements FrameworkAdapter {
+export class GenericAdapter implements ToolDefineFrameworkAdapter {
   name = 'generic';
   version = '1.0.0';
   supportedFrameworks = ['*']; // 支持所有框架
@@ -108,7 +108,7 @@ export class GenericAdapter implements FrameworkAdapter {
 /**
  * OpenAI 适配器
  */
-export class OpenAIAdapter implements FrameworkAdapter {
+export class OpenAIAdapter implements ToolDefineFrameworkAdapter {
   name = 'openai';
   version = '1.0.0';
   supportedFrameworks = ['openai', 'openai-functions'];
@@ -259,7 +259,7 @@ export class OpenAIAdapter implements FrameworkAdapter {
  * 通用适配器工厂
  */
 export class GenericAdapterFactory {
-  static createAdapter(config: AdapterConfig): FrameworkAdapter {
+  static createAdapter(config: AdapterConfig): ToolDefineFrameworkAdapter {
     switch (config.type) {
       case 'generic':
         return new GenericAdapter(config);

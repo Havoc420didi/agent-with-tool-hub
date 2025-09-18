@@ -7,4 +7,4 @@ export * from './tool.types';
 export * from './hub.types';
 
 // 适配器相关类型
-export * from './adapter.types';
+export * from './adapter-tool.types';

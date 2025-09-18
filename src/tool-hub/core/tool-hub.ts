@@ -3,8 +3,8 @@
 import { ToolRegistry } from './tool-registry';
 import { ToolExecutor } from './tool-executor';
 import { createToolHubLogger, Logger } from '../utils/logger';
-import { LangChainAdapter } from '../adapters/langchain-adapter';
-import { GenericAdapter, OpenAIAdapter } from '../adapters/generic-adapter';
+import { LangChainAdapter } from '../adapters/tool-define/langchain-adapter';
+import { GenericAdapter, OpenAIAdapter } from '../adapters/tool-define/generic-adapter';
 import {
   ToolConfig,
   ToolExecutionContext,
@@ -20,7 +20,7 @@ import {
   ToolRegistrationResult,
   BatchToolRegistrationResult,
   AdapterConfig,
-  FrameworkAdapter,
+  ToolDefineFrameworkAdapter,
   ToolConversionOptions,
 } from '../types/index';
 
@@ -36,7 +36,7 @@ export class ToolHub {
   private logger: Logger;
   
   // 适配器管理
-  private adapters: Map<string, FrameworkAdapter> = new Map();
+  private adapters: Map<string, ToolDefineFrameworkAdapter> = new Map();
   private defaultAdapter: string = 'langchain';
 
   constructor(config: ToolHubConfig = {}) {
@@ -430,7 +430,7 @@ export class ToolHub {
   /**
    * 注册适配器
    */
-  registerAdapter(name: string, adapter: FrameworkAdapter): void {
+  registerAdapter(name: string, adapter: ToolDefineFrameworkAdapter): void {
     this.adapters.set(name, adapter);
     this.logger.info(`适配器 "${name}" 已注册`);
   }
@@ -438,14 +438,14 @@ export class ToolHub {
   /**
    * 获取适配器
    */
-  getAdapter(name: string): FrameworkAdapter | undefined {
+  getAdapter(name: string): ToolDefineFrameworkAdapter | undefined {
     return this.adapters.get(name);
   }
 
   /**
    * 获取所有适配器
    */
-  getAdapters(): Map<string, FrameworkAdapter> {
+  getAdapters(): Map<string, ToolDefineFrameworkAdapter> {
     return new Map(this.adapters);
   }
 
@@ -465,7 +465,7 @@ export class ToolHub {
   /**
    * 获取默认适配器
    */
-  getDefaultAdapter(): FrameworkAdapter | undefined {
+  getDefaultAdapter(): ToolDefineFrameworkAdapter | undefined {
     return this.adapters.get(this.defaultAdapter);
   }
 

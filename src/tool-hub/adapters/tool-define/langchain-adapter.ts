@@ -3,15 +3,15 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { 
-  FrameworkAdapter, 
+  ToolDefineFrameworkAdapter, 
   AdapterConfig, 
-} from '../types/adapter.types';
-import { ToolConfig, ToolResult } from '../types/tool.types';
+} from '../../types/adapter-tool.types';
+import { ToolConfig, ToolResult } from '../../types/tool.types';
 
 /**
  * LangChain 适配器
  */
-export class LangChainAdapter implements FrameworkAdapter {
+export class LangChainAdapter implements ToolDefineFrameworkAdapter {
   name = 'langchain';
   version = '1.0.0';
   supportedFrameworks = ['langchain', 'langgraph'];

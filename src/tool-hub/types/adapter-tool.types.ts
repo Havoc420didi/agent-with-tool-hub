@@ -5,7 +5,7 @@ import { ToolConfig, ToolResult } from './tool.types';
 /**
  * 框架适配器接口
  */
-export interface FrameworkAdapter {
+export interface ToolDefineFrameworkAdapter {
   /** 适配器名称 */
   name: string;
   /** 适配器版本 */
@@ -62,7 +62,7 @@ export interface AdapterConfig {
  * 适配器注册信息
  */
 export interface AdapterRegistration {
-  adapter: FrameworkAdapter;
+  adapter: ToolDefineFrameworkAdapter;
   config: AdapterConfig;
   registeredAt: Date;
   active: boolean;
@@ -103,7 +103,7 @@ export interface FrameworkTool {
  */
 export interface AdapterFactory {
   /** 创建适配器 */
-  createAdapter(config: AdapterConfig): FrameworkAdapter;
+  createAdapter(config: AdapterConfig): ToolDefineFrameworkAdapter;
   
   /** 支持的适配器类型 */
   supportedTypes: string[];

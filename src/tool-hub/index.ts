@@ -7,7 +7,7 @@ export * from './core/index';
 export * from './types/index';
 
 // 适配器
-export * from './adapters/index';
+export * from './adapters/tool-define/index';
 
 // 工具函数 - 显式重新导出以避免命名冲突
 export * from './utils/validation';

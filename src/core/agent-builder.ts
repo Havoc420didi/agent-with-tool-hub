@@ -267,7 +267,7 @@ export class AgentBuilder {
 
     const lastMessage = result.messages[result.messages.length - 1] as AIMessage;
     
-    // 提取工具调用结果
+    // 提取工具调用结果，返回给调用者
     const toolCalls: ToolCallResult[] = [];
     if (lastMessage.tool_calls) {
       for (const toolCall of lastMessage.tool_calls) {
@@ -282,8 +282,6 @@ export class AgentBuilder {
         });
       }
     }
-
-    // API模式下不需要保存消息，客户端通过chatHistory传递完整历史记录
 
     return {
       content: typeof lastMessage.content === 'string' ? lastMessage.content : '',
@@ -359,7 +357,7 @@ export class AgentBuilder {
   /**
    * 获取工具中心
    */
-  getToolHub(): any {
+  getToolHub(): ToolHub {
     return this.toolHub;
   }
 

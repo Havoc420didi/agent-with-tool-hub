@@ -29,18 +29,18 @@ ToolHub
 
 #### 新增属性
 ```typescript
-private adapters: Map<string, FrameworkAdapter> = new Map();
+private adapters: Map<string, ToolDefineFrameworkAdapter> = new Map();
 private defaultAdapter: string = 'langchain';
 ```
 
 #### 新增方法
 
 **适配器管理:**
-- `registerAdapter(name: string, adapter: FrameworkAdapter): void`
-- `getAdapter(name: string): FrameworkAdapter | undefined`
-- `getAdapters(): Map<string, FrameworkAdapter>`
+- `registerAdapter(name: string, adapter: ToolDefineFrameworkAdapter): void`
+- `getAdapter(name: string): ToolDefineFrameworkAdapter | undefined`
+- `getAdapters(): Map<string, ToolDefineFrameworkAdapter>`
 - `setDefaultAdapter(name: string): boolean`
-- `getDefaultAdapter(): FrameworkAdapter | undefined`
+- `getDefaultAdapter(): ToolDefineFrameworkAdapter | undefined`
 
 **工具导出:**
 - `exportTools(format: string = 'langchain', options?: ToolConversionOptions): any[]`
