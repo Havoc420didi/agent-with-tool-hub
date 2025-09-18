@@ -8,6 +8,7 @@ export * from './types/index';
 
 // 适配器
 export * from './adapters/tool-define/index';
+export * from './adapters/tool-exec/index';  // 工具执行器
 
 // 工具函数 - 显式重新导出以避免命名冲突
 export * from './utils/validation';

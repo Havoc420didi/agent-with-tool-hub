@@ -4,7 +4,6 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { StateGraph, MessagesAnnotation, END, START } from "@langchain/langgraph";
 import { MemorySaver } from "@langchain/langgraph";
 import ToolHub, { createToolHub } from '../tool-hub/index';
@@ -32,7 +31,7 @@ export class AgentBuilder {
   private toolHub!: ToolHub;
   private config: AgentConfig;
   private model!: ChatOpenAI;
-  private toolNode!: ToolNode;
+  private toolNode!: any; // 使用 tool-hub 导出的工具执行器
   private workflow!: any;
   private app: any;
   private checkpointer?: MemorySaver;
@@ -104,8 +103,14 @@ export class AgentBuilder {
     // 绑定工具到模型
     this.model = this.model.bindTools(langchainTools) as ChatOpenAI;
 
-    // 创建工具节点
-    this.toolNode = new ToolNode(langchainTools);
+    // 使用 ToolHub 导出工具执行器（替代手动创建 ToolNode）
+    this.toolNode = this.toolHub.exportToolExecutor('langchain', {
+      enableStats: true,
+      enableEvents: true,
+      enablePerformanceMonitoring: true,
+      maxRetries: this.config.toolExecutionConfig?.internalConfig?.maxRetries || 3,
+      timeout: this.config.toolExecutionConfig?.outsideConfig?.timeout || 30000
+    });
   }
 
   /**
@@ -193,8 +198,14 @@ export class AgentBuilder {
     const langchainTools = this.toolHub.exportTools('langchain');
     this.model = baseModel.bindTools(langchainTools) as ChatOpenAI;
 
-    // 重新创建工具节点
-    this.toolNode = new ToolNode(langchainTools);
+    // 使用 ToolHub 重新导出工具执行器（替代手动创建 ToolNode）  // TODO 或许 adapter 能合并一下。
+    this.toolNode = this.toolHub.exportToolExecutor('langchain', {
+      enableStats: true,
+      enableEvents: true,
+      enablePerformanceMonitoring: true,
+      maxRetries: this.config.toolExecutionConfig?.internalConfig?.maxRetries || 3,
+      timeout: this.config.toolExecutionConfig?.outsideConfig?.timeout || 30000
+    });
 
     // 重新构建工作流
     this.buildWorkflow();
@@ -389,10 +400,22 @@ export class AgentBuilder {
    * 获取工具执行统计
    */
   getToolExecutionStats(): any {
-    return {
+    const baseStats = {
       executionMode: this.config.toolExecutionConfig?.mode || ToolExecutionMode.INTERNAL,
       pendingCalls: this.toolCallManager.getPendingToolCalls().length
     };
+
+    // 如果使用 tool-hub 导出的执行器，添加额外统计信息
+    if (this.toolNode && typeof this.toolNode.getStats === 'function') {
+      const toolNodeStats = this.toolNode.getStats();
+      return {
+        ...baseStats,
+        toolNodeStats,
+        toolHubStats: this.toolHub.getCacheStats()
+      };
+    }
+
+    return baseStats;
   }
 
   /**
@@ -535,6 +558,58 @@ export class AgentBuilder {
     } catch (error) {
       console.error('清空LG记忆失败:', error);
       return false;
+    }
+  }
+
+  // ==================== Tool-Hub 集成方法 ====================
+
+  /**
+   * 获取工具执行器健康状态
+   */
+  getToolExecutorHealth(): any {
+    if (this.toolNode && typeof this.toolNode.healthCheck === 'function') {
+      return this.toolNode.healthCheck();
+    }
+    return { status: 'unknown', message: '工具执行器不支持健康检查' };
+  }
+
+  /**
+   * 监听工具执行事件
+   */
+  onToolExecutionEvent(eventType: string, listener: (event: any) => void): void {
+    this.toolHub.on(eventType as any, listener);
+  }
+
+  /**
+   * 移除工具执行事件监听器
+   */
+  offToolExecutionEvent(eventType: string, listener: (event: any) => void): void {
+    this.toolHub.off(eventType as any, listener);
+  }
+
+  /**
+   * 获取工具执行器性能统计
+   */
+  getToolExecutorPerformanceStats(): any {
+    if (this.toolNode && typeof this.toolNode.getStats === 'function') {
+      const stats = this.toolNode.getStats();
+      return {
+        totalExecutions: stats.totalExecutions,
+        successfulExecutions: stats.successfulExecutions,
+        failedExecutions: stats.failedExecutions,
+        averageExecutionTime: stats.averageExecutionTime,
+        frameworkStats: stats.frameworkStats
+      };
+    }
+    return null;
+  }
+
+  /**
+   * 清理工具执行器资源
+   */
+  cleanupToolExecutor(): void {
+    if (this.toolNode && typeof this.toolNode.cleanup === 'function') {
+      this.toolNode.cleanup();
     }
   }
 }

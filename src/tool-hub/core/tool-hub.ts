@@ -5,6 +5,7 @@ import { ToolExecutor } from './tool-executor';
 import { createToolHubLogger, Logger } from '../utils/logger';
 import { LangChainToolDefineAdapter } from '../adapters/tool-define/langchain-adapter';
 import { GenericToolDefineAdapter, OpenAIToolDefineAdapter } from '../adapters/tool-define/generic-adapter';
+import { ToolExecutorFactory } from '../adapters/tool-exec';
 import {
   ToolConfig,
   ToolExecutionContext,
@@ -22,6 +23,7 @@ import {
   AdapterConfig,
   ToolDefineFrameworkAdapter,
   ToolConversionOptions,
+  ToolExecutorConfig,
 } from '../types/index';
 
 /**
@@ -366,6 +368,13 @@ export class ToolHub {
     }
   }
 
+  /**
+   * 对外发布事件（公开方法）
+   */
+  public publish(eventType: ToolHubEventType, data: any): void {
+    this.emit(eventType, data);
+  }
+
 
   /**
    * 更新配置
@@ -518,5 +527,68 @@ export class ToolHub {
    */
   isFormatSupported(format: string): boolean {
     return this.adapters.has(format);
+  }
+
+  // ==================== 工具执行器导出功能 ====================
+
+  /**
+   * 导出工具执行器
+   */
+  exportToolExecutor(framework: string = 'langchain', config?: ToolExecutorConfig): any {
+    try {
+      // 获取启用的工具并转换为指定框架格式
+      const tools = this.exportTools(framework);
+      
+      if (tools.length === 0) {
+        this.logger.warn('没有可用的工具来创建执行器', { framework });
+        return null;
+      }
+
+      // 创建执行器
+      const executor = ToolExecutorFactory.createExecutor(framework, this, tools, config);
+      
+      this.logger.info(`工具执行器已导出: ${framework}`, { 
+        framework, 
+        toolCount: tools.length 
+      });
+      
+      this.emit('tool.executor.exported', {
+        framework,
+        toolCount: tools.length,
+        timestamp: new Date()
+      });
+
+      return executor;
+    } catch (error) {
+      this.logger.error(`导出工具执行器失败: ${error instanceof Error ? error.message : String(error)}`, {
+        framework,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * 获取支持的工具执行器框架
+   */
+  getSupportedExecutorFrameworks(): string[] {
+    try {
+      return ToolExecutorFactory.getSupportedFrameworks();
+    } catch (error) {
+      this.logger.warn('无法获取支持的执行器框架', { error });
+      return [];
+    }
+  }
+
+  /**
+   * 检查执行器框架是否支持
+   */
+  isExecutorFrameworkSupported(framework: string): boolean {
+    try {
+      return ToolExecutorFactory.isFrameworkSupported(framework);
+    } catch (error) {
+      this.logger.warn('无法检查执行器框架支持', { error });
+      return false;
+    }
   }
 }

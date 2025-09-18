@@ -34,7 +34,13 @@ export type ToolHubEventType =
   | 'tool.executed'
   | 'tool.failed'
   | 'hub.initialized'
-  | 'hub.cleared';
+  | 'hub.cleared'
+  // 执行器扩展事件
+  | 'tool.execution.started'
+  | 'tool.execution.completed'
+  | 'tool.execution.failed'
+  | 'tool.executor.cleaned'
+  | 'tool.executor.exported';
 
 /**
  * ToolHub 事件数据
@@ -147,4 +153,40 @@ export interface ToolMetadata {
     code: string;
     description: string;
   }>;
+}
+
+/**
+ * 工具执行器配置
+ */
+export interface ToolExecutorConfig {
+  /** 启用统计 */
+  enableStats?: boolean;
+  /** 启用事件追踪 */
+  enableEvents?: boolean;
+  /** 启用性能监控 */
+  enablePerformanceMonitoring?: boolean;
+  /** 最大重试次数 */
+  maxRetries?: number;
+  /** 超时时间（毫秒） */
+  timeout?: number;
+  /** 框架特定配置 */
+  frameworkConfig?: Record<string, any>;
+}
+
+/**
+ * 工具执行统计
+ */
+export interface ToolExecutionStats {
+  /** 总执行次数 */
+  totalExecutions: number;
+  /** 成功执行次数 */
+  successfulExecutions: number;
+  /** 失败执行次数 */
+  failedExecutions: number;
+  /** 平均执行时间 */
+  averageExecutionTime: number;
+  /** 最后执行时间 */
+  lastExecutionTime?: Date;
+  /** 框架特定统计 */
+  frameworkStats?: Record<string, any>;
 }
