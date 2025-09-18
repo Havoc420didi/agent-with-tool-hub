@@ -78,6 +78,16 @@ export class AgentService {
     };
   }
 
+  // 直接获取 AgentBuilder 实例
+  getAgent(agentId: string): AgentBuilder | undefined {
+    return this.agents.get(agentId);
+  }
+
+  // 设置 AgentBuilder 实例（用于外部创建）
+  setAgent(agentId: string, agent: AgentBuilder): void {
+    this.agents.set(agentId, agent);
+  }
+
   // 聊天（支持两种记忆方式）
   async chat(agentId: string, request: ChatRequest | { message: string; threadId?: string }) {
     try {

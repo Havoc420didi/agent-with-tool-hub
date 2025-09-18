@@ -19,14 +19,11 @@ export function createAllRoutes(): Router {
   // 创建AgentService实例
   const agentService = new AgentService();
 
-  // 获取记忆服务实例
-  const memoryService = agentService.getMemoryService();
-
   // 注册各个模块的路由
   router.use(createHealthRoutes().routes());
   router.use(createChatRoutes().routes());
   router.use(createToolRoutes().routes());
-  router.use('/memory', createMemoryRoutes(memoryService).routes());
+  router.use('/memory', createMemoryRoutes().routes());
 
   return router;
 }

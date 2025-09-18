@@ -4,25 +4,39 @@ import Router from 'koa-router';
 import { AgentBuilder } from '../core/agent-builder';
 import { ToolExecutionMode, ChatRequest } from '../core/types';
 import { WestoreCafeTools } from '../../examples/tool-demo/westore-cafe-tools';
+import { AgentService } from '../services/agent.service';
 
-// 全局Agent实例缓存，用于保持记忆状态
-const agentCache = new Map<string, AgentBuilder>();
+// 全局Agent服务实例，统一管理所有Agent
+let agentService: AgentService;
+
+/**
+ * 初始化Agent服务
+ */
+function initializeAgentService(): AgentService {
+  if (!agentService) {
+    agentService = new AgentService();
+  }
+  return agentService;
+}
 
 /**
  * 获取或创建Agent实例
  */
-function getOrCreateAgent(threadId: string, config: any): AgentBuilder {
-  // 如果已存在该thread的agent，直接返回
-  if (agentCache.has(threadId)) {
-    return agentCache.get(threadId)!;
+async function getOrCreateAgent(threadId: string, config: any): Promise<AgentBuilder> {
+  const service = initializeAgentService();
+  
+  // 尝试获取现有Agent
+  let agent = service.getAgent(threadId);
+  if (agent) {
+    return agent;
   }
 
   // 创建新的Agent实例
-  const agent = new AgentBuilder(config);
+  agent = new AgentBuilder(config);
   agent.initialize();
   
-  // 缓存Agent实例
-  agentCache.set(threadId, agent);
+  // 注册到AgentService
+  service.setAgent(threadId, agent);
   
   return agent;
 }
@@ -100,7 +114,7 @@ export function createChatRoutes(): Router {
       };
       
       // 获取或创建Agent实例（保持记忆状态）
-      const agent = getOrCreateAgent(threadId || 'default', agentConfig);
+      const agent = await getOrCreateAgent(threadId || 'default', agentConfig);
 
       // 构建聊天请求
       const chatRequest: ChatRequest = {
@@ -223,18 +237,23 @@ export function createChatRoutes(): Router {
   // 获取Agent缓存状态
   router.get('/agents/cache', async (ctx) => {
     try {
-      const cacheInfo = Array.from(agentCache.entries()).map(([threadId, agent]) => ({
-        threadId,
-        memoryStats: agent.getMemoryStats(),
-        toolStats: agent.getToolExecutionStats(),
-        config: agent.getConfig()
-      }));
+      const service = initializeAgentService();
+      const memoryService = service.getMemoryService();
+      
+      // 获取所有Agent的统计信息
+      const allStats = await memoryService.getAllMemoryStats();
+      
+      if (!allStats.success) {
+        ctx.status = 500;
+        ctx.body = allStats;
+        return;
+      }
 
       ctx.body = {
         success: true,
         data: {
-          totalAgents: agentCache.size,
-          agents: cacheInfo
+          totalAgents: allStats.data?.totalAgents || 0,
+          agents: allStats.data?.agents || []
         }
       };
     } catch (error) {
@@ -253,9 +272,11 @@ export function createChatRoutes(): Router {
   router.delete('/agents/cache/:threadId', async (ctx) => {
     try {
       const { threadId } = ctx.params;
+      const service = initializeAgentService();
       
-      if (agentCache.has(threadId)) {
-        agentCache.delete(threadId);
+      const result = await service.deleteAgent(threadId);
+      
+      if (result.success) {
         ctx.body = {
           success: true,
           data: {
@@ -264,13 +285,7 @@ export function createChatRoutes(): Router {
         };
       } else {
         ctx.status = 404;
-        ctx.body = {
-          success: false,
-          error: {
-            code: 'THREAD_NOT_FOUND',
-            message: `Thread ${threadId} 不存在`
-          }
-        };
+        ctx.body = result;
       }
     } catch (error) {
       ctx.status = 500;
@@ -287,15 +302,28 @@ export function createChatRoutes(): Router {
   // 清理所有Agent缓存
   router.delete('/agents/cache', async (ctx) => {
     try {
-      const count = agentCache.size;
-      agentCache.clear();
+      const service = initializeAgentService();
+      const memoryService = service.getMemoryService();
       
-      ctx.body = {
-        success: true,
-        data: {
-          message: `已清理 ${count} 个Agent缓存`
-        }
-      };
+      // 获取当前Agent数量
+      const allStats = await memoryService.getAllMemoryStats();
+      const count = allStats.success ? (allStats.data?.totalAgents || 0) : 0;
+      
+      // 清空所有记忆
+      const result = await memoryService.clearAllMemory();
+      
+      if (result.success) {
+        ctx.body = {
+          success: true,
+          data: {
+            message: `已清理 ${count} 个Agent缓存`,
+            clearedAgents: result.data?.totalAgents || 0
+          }
+        };
+      } else {
+        ctx.status = 500;
+        ctx.body = result;
+      }
     } catch (error) {
       ctx.status = 500;
       ctx.body = {
@@ -308,68 +336,27 @@ export function createChatRoutes(): Router {
     }
   });
 
-  // 调试LG记忆状态
-  router.get('/agents/:threadId/memory/debug', async (ctx) => {
-    try {
-      const { threadId } = ctx.params;
-      
-      if (!agentCache.has(threadId)) {
-        ctx.status = 404;
-        ctx.body = {
-          success: false,
-          error: {
-            code: 'THREAD_NOT_FOUND',
-            message: `Thread ${threadId} 不存在`
-          }
-        };
-        return;
-      }
-
-      const agent = agentCache.get(threadId)!;
-      const debugInfo = await agent.debugLGMemory(threadId);
-      
-      ctx.body = {
-        success: true,
-        data: debugInfo
-      };
-    } catch (error) {
-      ctx.status = 500;
-      ctx.body = {
-        success: false,
-        error: {
-          code: 'DEBUG_ERROR',
-          message: error instanceof Error ? error.message : '调试记忆状态失败'
-        }
-      };
-    }
-  });
-
   // 清空LG记忆状态
   router.delete('/agents/:threadId/memory', async (ctx) => {
     try {
       const { threadId } = ctx.params;
+      const service = initializeAgentService();
+      const memoryService = service.getMemoryService();
       
-      if (!agentCache.has(threadId)) {
-        ctx.status = 404;
+      // 清空特定thread的记忆
+      const result = await memoryService.clearChatHistory(threadId, threadId);
+      
+      if (result.success) {
         ctx.body = {
-          success: false,
-          error: {
-            code: 'THREAD_NOT_FOUND',
-            message: `Thread ${threadId} 不存在`
+          success: true,
+          data: {
+            message: `Thread ${threadId} 的记忆已清空`
           }
         };
-        return;
+      } else {
+        ctx.status = 404;
+        ctx.body = result;
       }
-
-      const agent = agentCache.get(threadId)!;
-      const success = await agent.clearLGMemory(threadId);
-      
-      ctx.body = {
-        success,
-        data: {
-          message: success ? `Thread ${threadId} 的记忆已清空` : `Thread ${threadId} 的记忆清空失败`
-        }
-      };
     } catch (error) {
       ctx.status = 500;
       ctx.body = {

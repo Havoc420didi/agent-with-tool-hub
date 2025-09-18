@@ -2,12 +2,30 @@
 
 import Router from 'koa-router';
 import { MemoryService } from '../services/memory.service';
+import { AgentService } from '../services/agent.service';
+
+// 全局Agent服务实例，与chat.routes共享
+let agentService: AgentService;
 
 /**
- * 创建记忆管理路由 // INFO 暂时没什么用
+ * 初始化Agent服务
  */
-export function createMemoryRoutes(memoryService: MemoryService): Router {
+function initializeAgentService(): AgentService {
+  if (!agentService) {
+    agentService = new AgentService();
+  }
+  return agentService;
+}
+
+/**
+ * 创建记忆管理路由
+ */
+export function createMemoryRoutes(memoryService?: MemoryService): Router {
   const router = new Router();
+  
+  // 获取记忆服务实例
+  const service = initializeAgentService();
+  const memoryServiceInstance = memoryService || service.getMemoryService();
 
   // ==================== 基本记忆管理 API ====================
 
@@ -17,7 +35,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
       const { agentId, threadId } = ctx.params;
       const { limit } = ctx.query;
       
-      const result = await memoryService.getChatHistory(
+      const result = await memoryServiceInstance.getChatHistory(
         agentId, 
         threadId, 
         limit ? parseInt(limit as string) : undefined
@@ -41,7 +59,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
     try {
       const { agentId, threadId } = ctx.params;
       
-      const result = await memoryService.clearChatHistory(agentId, threadId);
+      const result = await memoryServiceInstance.clearChatHistory(agentId, threadId);
       
       ctx.body = result;
     } catch (error) {
@@ -61,7 +79,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
     try {
       const { agentId } = ctx.params;
       
-      const result = await memoryService.getThreads(agentId);
+      const result = await memoryServiceInstance.getThreads(agentId);
       
       ctx.body = result;
     } catch (error) {
@@ -94,7 +112,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
         return;
       }
       
-      const result = await memoryService.setMemoryMode(agentId, mode);
+      const result = await memoryServiceInstance.setMemoryMode(agentId, mode);
       
       ctx.body = result;
     } catch (error) {
@@ -114,7 +132,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
     try {
       const { agentId } = ctx.params;
       
-      const result = await memoryService.getMemoryStats(agentId);
+      const result = await memoryServiceInstance.getMemoryStats(agentId);
       
       ctx.body = result;
     } catch (error) {
@@ -136,7 +154,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
     try {
       const { agentId, threadId, messageId } = ctx.params;
       
-      const result = await memoryService.deleteMessage(agentId, threadId, messageId);
+      const result = await memoryServiceInstance.deleteMessage(agentId, threadId, messageId);
       
       ctx.body = result;
     } catch (error) {
@@ -154,7 +172,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
   // 获取所有Agent的记忆统计
   router.get('/stats/all', async (ctx) => {
     try {
-      const result = await memoryService.getAllMemoryStats();
+      const result = await memoryServiceInstance.getAllMemoryStats();
       
       ctx.body = result;
     } catch (error) {
@@ -172,7 +190,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
   // 清空所有记忆
   router.delete('/clear-all', async (ctx) => {
     try {
-      const result = await memoryService.clearAllMemory();
+      const result = await memoryServiceInstance.clearAllMemory();
       
       ctx.body = result;
     } catch (error) {
@@ -193,7 +211,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
       const { agentId, threadId } = ctx.params;
       const { format = 'json' } = ctx.query;
       
-      const result = await memoryService.exportChatHistory(
+      const result = await memoryServiceInstance.exportChatHistory(
         agentId, 
         threadId, 
         format as 'json' | 'txt'
@@ -236,7 +254,7 @@ export function createMemoryRoutes(memoryService: MemoryService): Router {
         return;
       }
       
-      const result = await memoryService.importChatHistory(agentId, threadId, historyData);
+      const result = await memoryServiceInstance.importChatHistory(agentId, threadId, historyData);
       
       ctx.body = result;
     } catch (error) {

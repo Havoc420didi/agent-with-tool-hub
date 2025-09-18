@@ -251,16 +251,10 @@ export class AgentBuilder {
       config.configurable = { thread_id: actualThreadId };
     }
 
-    // 调试输出：LG模式下的配置和消息
+    // TEST 调试输出：LG模式下的配置和消息
     if (memoryMode === 'lg') {
       console.log('🔍 LG记忆模式调试信息:');
       console.log('  - Thread ID:', actualThreadId);
-      console.log('  - 配置:', JSON.stringify(config, null, 2));
-      console.log('  - 当前消息数量:', messages.length);
-      console.log('  - 消息内容:', messages.map(msg => ({
-        type: msg.constructor.name,
-        content: typeof msg.content === 'string' ? msg.content.substring(0, 100) + '...' : msg.content
-      })));
       console.log('  - Checkpointer状态:', this.checkpointer ? '已启用' : '未启用');
     }
 
@@ -268,7 +262,7 @@ export class AgentBuilder {
       messages: messages,
     }, config);
 
-    // 调试输出：LG模式下的结果
+    // TEST 调试输出：LG模式下的结果
     if (memoryMode === 'lg') {
       console.log('🔍 LG记忆模式结果:');
       console.log('  - 返回消息数量:', result.messages.length);
@@ -403,6 +397,9 @@ export class AgentBuilder {
    * 获取工具列表
    */
   getTools(): string[] {
+    if (!this.toolHub) {
+      return [];
+    }
     return this.toolHub.getEnabled().map((tool: any) => tool.name);
   }
 
@@ -535,6 +532,10 @@ export class AgentBuilder {
    * 获取记忆管理器
    */
   getMemoryManager(): MemoryManagerImpl {
+    if (!this.memoryManager) {
+      const maxHistory = this.config.memory?.maxHistory || 50;
+      this.memoryManager = createMemoryManager(maxHistory);
+    }
     return this.memoryManager;
   }
 
@@ -553,11 +554,12 @@ export class AgentBuilder {
    * 获取记忆统计信息
    */
   getMemoryStats(): any {
+    const memoryManager = this.getMemoryManager();
     return {
       memoryMode: this.config.memory?.mode || 'lg',
       memoryEnabled: this.config.memory?.enabled || false,
       maxHistory: this.config.memory?.maxHistory || 50,
-      stats: this.memoryManager.getStats()
+      stats: memoryManager.getStats()
     };
   }
 
