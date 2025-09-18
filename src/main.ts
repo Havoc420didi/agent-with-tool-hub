@@ -14,7 +14,7 @@ config({ path: resolve(process.cwd(), './config.env') });
 // 导入工具和中间件
 import Logger from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
-import { agentRoutes } from './routes/index';
+import { createAllRoutes } from './routes/index';
 
 const app = new Koa();
 const router = new Router();
@@ -84,11 +84,14 @@ router.get('/', (ctx) => {
   };
 });
 
+// 创建所有路由
+const allRoutes = createAllRoutes();
+
 // 注册路由
 app.use(router.routes());
 app.use(router.allowedMethods());
-app.use(agentRoutes.routes());
-app.use(agentRoutes.allowedMethods());
+app.use(allRoutes.routes());
+app.use(allRoutes.allowedMethods());
 
 // 404 处理
 app.use(notFoundHandler);

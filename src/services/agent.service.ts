@@ -1,9 +1,16 @@
 // services/agent.service.ts - 简洁的 Agent 服务
 
 import { AgentBuilder } from '../core/agent-builder';
+import { ChatRequest, ChatHistoryMessage } from '../core/types';
+import { MemoryService } from './memory.service';
 
 export class AgentService {
   private agents: Map<string, AgentBuilder> = new Map();
+  private memoryService: MemoryService;
+
+  constructor() {
+    this.memoryService = new MemoryService(this.agents);
+  }
 
   // 创建 Agent
   async createAgent(agentId: string, config: any) {
@@ -71,8 +78,8 @@ export class AgentService {
     };
   }
 
-  // 聊天
-  async chat(agentId: string, request: { message: string; threadId?: string }) {
+  // 聊天（支持两种记忆方式）
+  async chat(agentId: string, request: ChatRequest | { message: string; threadId?: string }) {
     try {
       const agent = this.agents.get(agentId);
       if (!agent) {
@@ -85,7 +92,7 @@ export class AgentService {
         };
       }
 
-      const response = await agent.invoke(request.message, request.threadId);
+      const response = await agent.invoke(request as any);
 
       return {
         success: true,
@@ -94,7 +101,7 @@ export class AgentService {
           toolCalls: response.toolCalls,
           metadata: response.metadata,
           timestamp: new Date().toISOString(),
-          threadId: request.threadId || 'default'
+          threadId: (request as any).threadId || 'default'
         }
       };
     } catch (error) {
@@ -259,5 +266,49 @@ export class AgentService {
         }
       };
     }
+  }
+
+  // ==================== 记忆管理方法 ====================
+
+  /**
+   * 获取记忆服务实例
+   */
+  getMemoryService(): MemoryService {
+    return this.memoryService;
+  }
+
+  /**
+   * 获取聊天历史（委托给记忆服务）
+   */
+  async getChatHistory(agentId: string, threadId: string, limit?: number) {
+    return await this.memoryService.getChatHistory(agentId, threadId, limit);
+  }
+
+  /**
+   * 清空聊天历史（委托给记忆服务）
+   */
+  async clearChatHistory(agentId: string, threadId: string) {
+    return await this.memoryService.clearChatHistory(agentId, threadId);
+  }
+
+  /**
+   * 获取会话列表（委托给记忆服务）
+   */
+  async getThreads(agentId: string) {
+    return await this.memoryService.getThreads(agentId);
+  }
+
+  /**
+   * 设置记忆模式（委托给记忆服务）
+   */
+  async setMemoryMode(agentId: string, mode: 'api' | 'lg') {
+    return await this.memoryService.setMemoryMode(agentId, mode);
+  }
+
+  /**
+   * 获取记忆统计信息（委托给记忆服务）
+   */
+  async getMemoryStats(agentId: string) {
+    return await this.memoryService.getMemoryStats(agentId);
   }
 }

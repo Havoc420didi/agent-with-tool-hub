@@ -432,7 +432,7 @@ export class ToolHub {
    */
   registerAdapter(name: string, adapter: FrameworkAdapter): void {
     this.adapters.set(name, adapter);
-    this.logger.info(`适配器 "${name}" 已注册`, { adapterName: name });
+    this.logger.info(`适配器 "${name}" 已注册`);
   }
 
   /**

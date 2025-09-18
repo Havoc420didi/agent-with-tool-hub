@@ -79,6 +79,10 @@ export interface AgentConfig {
   memory?: {
     enabled: boolean;
     threadId?: string;
+    /** 记忆模式：'api' 通过API传递历史，'lg' 使用LangGraph内置记忆 */
+    mode?: 'api' | 'lg';
+    /** 最大历史消息数量 */
+    maxHistory?: number;
   };
   streaming?: boolean;
   /** 工具执行模式配置 */
@@ -136,4 +140,76 @@ export interface ToolExecutionDecision {
   waitForResult?: boolean;
   /** 超时时间 */
   timeout?: number;
+}
+
+/**
+ * 聊天历史消息接口
+ */
+export interface ChatHistoryMessage {
+  /** 消息类型 */
+  type: 'human' | 'ai' | 'system' | 'tool';
+  /** 消息内容 */
+  content: string;
+  /** 时间戳 */
+  timestamp: string;
+  /** 工具调用信息（如果是AI消息且包含工具调用） */
+  toolCalls?: {
+    id: string;
+    name: string;
+    args: Record<string, any>;
+  }[];
+  /** 工具结果（如果是工具消息） */
+  toolResult?: any;
+  /** 元数据 */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * 聊天历史接口
+ */
+export interface ChatHistory {
+  /** 会话ID */
+  threadId: string;
+  /** 消息列表 */
+  messages: ChatHistoryMessage[];
+  /** 创建时间 */
+  createdAt: string;
+  /** 最后更新时间 */
+  updatedAt: string;
+  /** 消息数量 */
+  messageCount: number;
+}
+
+/**
+ * 记忆管理接口
+ */
+export interface MemoryManager {
+  /** 保存消息到历史记录 */
+  saveMessage(threadId: string, message: ChatHistoryMessage): Promise<void>;
+  /** 获取历史记录 */
+  getHistory(threadId: string, limit?: number): Promise<ChatHistoryMessage[]>;
+  /** 清空历史记录 */
+  clearHistory(threadId: string): Promise<void>;
+  /** 删除特定消息 */
+  deleteMessage(threadId: string, messageId: string): Promise<boolean>;
+  /** 获取会话列表 */
+  getThreads(): Promise<string[]>;
+}
+
+/**
+ * 聊天请求接口（支持历史记录）
+ */
+export interface ChatRequest {
+  /** 用户消息 */
+  message: string;
+  /** 会话ID */
+  threadId?: string;
+  /** 聊天历史（API模式） */
+  chatHistory?: ChatHistoryMessage[];
+  /** 记忆模式 */
+  memoryMode?: 'api' | 'lg';
+  /** 最大历史消息数量 */
+  maxHistory?: number;
+  /** 其他配置 */
+  config?: Record<string, any>;
 }

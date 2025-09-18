@@ -9,7 +9,7 @@
     "build:rspack": "npx rspack build --mode production",
     "start": "tsx src/main.ts",
     "start:dist": "node dist/main.js",
-    "test": "tsx tests/test-chat.mts",
+    "chat": "tsx tests/test-chat.mts",
     "test:quick": "tsx tests/test-quick-chat.mts"
   },
   "dependencies": {

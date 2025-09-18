@@ -14,8 +14,11 @@ import {
   AgentResponse, 
   ToolCallResult, 
   ToolExecutionMode,
-  ToolCallInfo 
+  ToolCallInfo,
+  ChatRequest,
+  ChatHistoryMessage
 } from './types';
+import { MemoryManagerImpl, createMemoryManager } from './memory-manager';
 import { 
   ToolExecutionStrategyFactory, 
   ToolCallManager, 
@@ -35,6 +38,7 @@ export class AgentBuilder {
   private checkpointer?: MemorySaver;
   private toolCallManager!: ToolCallManager;
   private toolExecutionStrategy!: ToolExecutionStrategy;
+  private memoryManager!: MemoryManagerImpl;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -48,6 +52,7 @@ export class AgentBuilder {
   initialize(): void {
     this.toolHub = createToolHub();
     this.initializeToolExecutionStrategy(); // TODO
+    this.initializeMemoryManager();
     this.initializeTools();
     this.buildWorkflow();
   }
@@ -71,7 +76,6 @@ export class AgentBuilder {
     this.toolExecutionStrategy = ToolExecutionStrategyFactory.createStrategy(toolExecutionConfig, toolExecutor);
     this.toolCallManager = new ToolCallManager(this.toolExecutionStrategy);
   }
-
 
   /**
    * 初始化模型
@@ -113,6 +117,14 @@ export class AgentBuilder {
     if (this.config.memory?.enabled) {
       this.checkpointer = new MemorySaver();
     }
+  }
+
+  /**
+   * 初始化记忆管理器
+   */
+  private initializeMemoryManager(): void {
+    const maxHistory = this.config.memory?.maxHistory || 50;
+    this.memoryManager = createMemoryManager(maxHistory);
   }
 
   /**
@@ -198,18 +210,75 @@ export class AgentBuilder {
   }
 
   /**
-   * 调用 agent
+   * 调用 agent（支持两种记忆方式）
    */
-  async invoke(message: string, threadId?: string): Promise<AgentResponse> {
+  async invoke(message: string, threadId?: string): Promise<AgentResponse>;
+  async invoke(request: ChatRequest): Promise<AgentResponse>;
+  async invoke(messageOrRequest: string | ChatRequest, threadId?: string): Promise<AgentResponse> {
+    // 处理重载参数
+    let message: string;
+    let actualThreadId: string;
+    let chatHistory: ChatHistoryMessage[] | undefined;
+    let memoryMode: 'api' | 'lg' = 'lg';
+
+    if (typeof messageOrRequest === 'string') {
+      message = messageOrRequest;
+      actualThreadId = threadId || 'default';
+    } else {
+      message = messageOrRequest.message;
+      actualThreadId = messageOrRequest.threadId || 'default';
+      chatHistory = messageOrRequest.chatHistory;
+      memoryMode = messageOrRequest.memoryMode || this.config.memory?.mode || 'lg';
+    }
+
+    // 构建消息列表
+    let messages: any[] = [];
+
+    if (memoryMode === 'api' && chatHistory) {
+      // API模式：使用传入的历史记录
+      messages = chatHistory.map(msg => MemoryManagerImpl.toLangChainMessage(msg));
+    } else if (memoryMode === 'lg' && this.checkpointer) {
+      // LG模式：使用LangGraph内置记忆，不传递历史记录
+      // LangGraph会自动从checkpointer中恢复历史
+    }
+
+    // 添加当前用户消息
+    messages.push(new HumanMessage(message));
+
     const config: any = {};
-    if (this.checkpointer) {
-      // 如果启用了内存，必须提供 thread_id
-      config.configurable = { thread_id: threadId || 'default' };
+    if (this.checkpointer && memoryMode === 'lg') {
+      // 如果启用了LG内存，必须提供 thread_id
+      config.configurable = { thread_id: actualThreadId };
+    }
+
+    // 调试输出：LG模式下的配置和消息
+    if (memoryMode === 'lg') {
+      console.log('🔍 LG记忆模式调试信息:');
+      console.log('  - Thread ID:', actualThreadId);
+      console.log('  - 配置:', JSON.stringify(config, null, 2));
+      console.log('  - 当前消息数量:', messages.length);
+      console.log('  - 消息内容:', messages.map(msg => ({
+        type: msg.constructor.name,
+        content: typeof msg.content === 'string' ? msg.content.substring(0, 100) + '...' : msg.content
+      })));
+      console.log('  - Checkpointer状态:', this.checkpointer ? '已启用' : '未启用');
     }
 
     const result = await this.app.invoke({
-      messages: [new HumanMessage(message)],
+      messages: messages,
     }, config);
+
+    // 调试输出：LG模式下的结果
+    if (memoryMode === 'lg') {
+      console.log('🔍 LG记忆模式结果:');
+      console.log('  - 返回消息数量:', result.messages.length);
+      console.log('  - 返回消息内容:', result.messages.map((msg: any, index: number) => ({
+        index,
+        type: msg.constructor.name,
+        content: typeof msg.content === 'string' ? msg.content.substring(0, 100) + '...' : msg.content,
+        tool_calls: msg.tool_calls?.length || 0
+      })));
+    }
 
     const lastMessage = result.messages[result.messages.length - 1] as AIMessage;
     
@@ -229,12 +298,54 @@ export class AgentBuilder {
       }
     }
 
+    // 保存消息到记忆管理器（用于API模式的历史记录管理）
+    if (memoryMode === 'api') {
+      // 保存用户消息
+      await this.memoryManager.saveMessage(actualThreadId, {
+        type: 'human',
+        content: message,
+        timestamp: new Date().toISOString(),
+        metadata: { messageId: `human_${Date.now()}` }
+      });
+
+      // 保存AI回复
+      await this.memoryManager.saveMessage(actualThreadId, {
+        type: 'ai',
+        content: typeof lastMessage.content === 'string' ? lastMessage.content : '',
+        timestamp: new Date().toISOString(),
+        toolCalls: lastMessage.tool_calls?.map(tc => ({
+          id: tc.id || `tool_${Date.now()}`,
+          name: tc.name,
+          args: tc.args
+        })),
+        metadata: { messageId: `ai_${Date.now()}` }
+      });
+
+      // 保存工具调用结果
+      if (toolCalls.length > 0) {
+        for (const toolCall of toolCalls) {
+          await this.memoryManager.saveMessage(actualThreadId, {
+            type: 'tool',
+            content: toolCall.result,
+            timestamp: new Date().toISOString(),
+            toolResult: toolCall.result,
+            metadata: { 
+              messageId: `tool_${Date.now()}`,
+              toolName: toolCall.toolName
+            }
+          });
+        }
+      }
+    }
+
     return {
       content: typeof lastMessage.content === 'string' ? lastMessage.content : '',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       metadata: {
         totalMessages: result.messages.length,
-        toolsUsed: toolCalls.map(tc => tc.toolName)
+        toolsUsed: toolCalls.map(tc => tc.toolName),
+        threadId: actualThreadId,
+        memoryMode
       }
     };
   }
@@ -395,6 +506,116 @@ export class AgentBuilder {
     this.config.toolExecutionConfig = config;
     this.initializeToolExecutionStrategy();
     this.buildWorkflow();
+  }
+
+  // ==================== 记忆管理方法 ====================
+
+  /**
+   * 获取聊天历史
+   */
+  async getChatHistory(threadId: string, limit?: number): Promise<ChatHistoryMessage[]> {
+    return await this.memoryManager.getHistory(threadId, limit);
+  }
+
+  /**
+   * 清空聊天历史
+   */
+  async clearChatHistory(threadId: string): Promise<void> {
+    await this.memoryManager.clearHistory(threadId);
+  }
+
+  /**
+   * 获取所有会话列表
+   */
+  async getThreads(): Promise<string[]> {
+    return await this.memoryManager.getThreads();
+  }
+
+  /**
+   * 获取记忆管理器
+   */
+  getMemoryManager(): MemoryManagerImpl {
+    return this.memoryManager;
+  }
+
+  /**
+   * 设置记忆模式
+   */
+  setMemoryMode(mode: 'api' | 'lg'): void {
+    if (this.config.memory) {
+      this.config.memory.mode = mode;
+    } else {
+      this.config.memory = { enabled: true, mode };
+    }
+  }
+
+  /**
+   * 获取记忆统计信息
+   */
+  getMemoryStats(): any {
+    return {
+      memoryMode: this.config.memory?.mode || 'lg',
+      memoryEnabled: this.config.memory?.enabled || false,
+      maxHistory: this.config.memory?.maxHistory || 50,
+      stats: this.memoryManager.getStats()
+    };
+  }
+
+  /**
+   * 调试LG记忆状态
+   */
+  async debugLGMemory(threadId: string): Promise<any> {
+    if (!this.checkpointer) {
+      return { error: 'Checkpointer未启用' };
+    }
+
+    try {
+      // 尝试获取当前状态
+      const state = await this.app.getState({ configurable: { thread_id: threadId } });
+      
+      return {
+        threadId,
+        checkpointerEnabled: !!this.checkpointer,
+        currentState: {
+          messages: state.values?.messages?.map((msg: any, index: number) => ({
+            index,
+            type: msg.constructor.name,
+            content: typeof msg.content === 'string' ? msg.content.substring(0, 100) + '...' : msg.content,
+            tool_calls: msg.tool_calls?.length || 0
+          })) || [],
+          messageCount: state.values?.messages?.length || 0,
+          next: state.next || [],
+          config: state.config || {}
+        }
+      };
+    } catch (error) {
+      return {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+        checkpointerEnabled: !!this.checkpointer
+      };
+    }
+  }
+
+  /**
+   * 清空LG记忆状态
+   */
+  async clearLGMemory(threadId: string): Promise<boolean> {
+    if (!this.checkpointer) {
+      return false;
+    }
+
+    try {
+      // 尝试更新状态为空
+      await this.app.updateState(
+        { configurable: { thread_id: threadId } },
+        { messages: [] }
+      );
+      return true;
+    } catch (error) {
+      console.error('清空LG记忆失败:', error);
+      return false;
+    }
   }
 }
 
