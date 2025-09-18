@@ -10,7 +10,7 @@ import { ToolConfig, ToolResult } from '../../types/tool.types';
 /**
  * 通用适配器 - 适用于任何框架
  */
-export class GenericAdapter implements ToolDefineFrameworkAdapter {
+export class GenericToolDefineAdapter implements ToolDefineFrameworkAdapter {
   name = 'generic';
   version = '1.0.0';
   supportedFrameworks = ['*']; // 支持所有框架
@@ -108,7 +108,7 @@ export class GenericAdapter implements ToolDefineFrameworkAdapter {
 /**
  * OpenAI 适配器
  */
-export class OpenAIAdapter implements ToolDefineFrameworkAdapter {
+export class OpenAIToolDefineAdapter implements ToolDefineFrameworkAdapter {
   name = 'openai';
   version = '1.0.0';
   supportedFrameworks = ['openai', 'openai-functions'];
@@ -258,13 +258,13 @@ export class OpenAIAdapter implements ToolDefineFrameworkAdapter {
 /**
  * 通用适配器工厂
  */
-export class GenericAdapterFactory {
+export class GenericToolDefineAdapterFactory {
   static createAdapter(config: AdapterConfig): ToolDefineFrameworkAdapter {
     switch (config.type) {
       case 'generic':
-        return new GenericAdapter(config);
+        return new GenericToolDefineAdapter(config);
       case 'openai':
-        return new OpenAIAdapter(config);
+        return new OpenAIToolDefineAdapter(config);
       default:
         throw new Error(`不支持的适配器类型: ${config.type}`);
     }

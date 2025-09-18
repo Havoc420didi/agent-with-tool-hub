@@ -70,11 +70,11 @@ console.log(result);
 
 ```typescript
 import { createToolHubWithPresets } from 'tool-hub';
-import { LangChainAdapter } from 'tool-hub/adapters';
+import { LangChainToolDefineAdapter } from 'tool-hub/adapters';
 import { ChatOpenAI } from '@langchain/openai';
 
 const toolHub = createToolHubWithPresets();
-const adapter = new LangChainAdapter();
+const adapter = new LangChainToolDefineAdapter();
 const tools = adapter.convertTools(toolHub.getEnabled());
 
 const model = new ChatOpenAI({ model: 'gpt-3.5-turbo' });
@@ -93,9 +93,9 @@ const toolNode = new ToolNode(tools);
 ### 通用框架集成
 
 ```typescript
-import { GenericAdapter } from 'tool-hub/adapters';
+import { GenericToolDefineAdapter } from 'tool-hub/adapters';
 
-const adapter = new GenericAdapter();
+const adapter = new GenericToolDefineAdapter();
 const genericTools = adapter.convertTools(toolHub.getEnabled());
 
 // 在任何框架中使用 genericTools
@@ -258,8 +258,8 @@ if (!validation.valid) {
 
 4. **使用适配器集成框架**
    ```typescript
-   import { LangChainAdapter } from 'tool-hub/adapters';
-   const adapter = new LangChainAdapter();
+   import { LangChainToolDefineAdapter } from 'tool-hub/adapters';
+   const adapter = new LangChainToolDefineAdapter();
    const frameworkTools = adapter.convertTools(toolHub.getEnabled());
    ```
 

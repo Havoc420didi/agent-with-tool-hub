@@ -11,7 +11,7 @@ import { ToolConfig, ToolResult } from '../../types/tool.types';
 /**
  * LangChain 适配器
  */
-export class LangChainAdapter implements ToolDefineFrameworkAdapter {
+export class LangChainToolDefineAdapter implements ToolDefineFrameworkAdapter {
   name = 'langchain';
   version = '1.0.0';
   supportedFrameworks = ['langchain', 'langgraph'];
@@ -176,9 +176,9 @@ export class LangChainAdapter implements ToolDefineFrameworkAdapter {
 /**
  * LangChain 适配器工厂
  */
-export class LangChainAdapterFactory {
-  static createAdapter(config: AdapterConfig = { type: 'langchain' }): LangChainAdapter {
-    return new LangChainAdapter(config);
+export class LangChainToolDefineAdapterFactory {
+  static createAdapter(config: AdapterConfig = { type: 'langchain' }): LangChainToolDefineAdapter {
+    return new LangChainToolDefineAdapter(config);
   }
 
   static supportedTypes = ['langchain', 'langgraph'];

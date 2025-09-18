@@ -18,9 +18,9 @@ ToolHub
 ├── ToolRegistry (工具注册表)
 ├── ToolExecutor (工具执行器)
 └── Adapters (适配器管理)
-    ├── LangChainAdapter
-    ├── GenericAdapter
-    └── OpenAIAdapter
+    ├── LangChainToolDefineAdapter
+    ├── GenericToolDefineAdapter
+    └── OpenAIToolDefineAdapter
 ```
 
 ## 主要变更
@@ -53,10 +53,10 @@ private defaultAdapter: string = 'langchain';
 #### 移除的依赖
 ```typescript
 // 移除
-import { LangChainAdapter } from '../tool-hub/adapters/langchain-adapter';
+import { LangChainToolDefineAdapter } from '../tool-hub/adapters/langchain-adapter';
 
 // 移除
-private adapter: LangChainAdapter;
+private adapter: LangChainToolDefineAdapter;
 ```
 
 #### 简化的工具初始化

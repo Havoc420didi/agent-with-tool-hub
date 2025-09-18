@@ -1,4 +1,4 @@
 // index.ts - 适配器模块导出
 
-export { LangChainAdapter, LangChainAdapterFactory } from './langchain-adapter';
-export { GenericAdapter, OpenAIAdapter, GenericAdapterFactory } from './generic-adapter';
+export { LangChainToolDefineAdapter, LangChainToolDefineAdapterFactory } from './langchain-adapter';
+export { GenericToolDefineAdapter, OpenAIToolDefineAdapter, GenericToolDefineAdapterFactory } from './generic-adapter';

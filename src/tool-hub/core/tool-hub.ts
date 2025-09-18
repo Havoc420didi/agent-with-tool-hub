@@ -3,8 +3,8 @@
 import { ToolRegistry } from './tool-registry';
 import { ToolExecutor } from './tool-executor';
 import { createToolHubLogger, Logger } from '../utils/logger';
-import { LangChainAdapter } from '../adapters/tool-define/langchain-adapter';
-import { GenericAdapter, OpenAIAdapter } from '../adapters/tool-define/generic-adapter';
+import { LangChainToolDefineAdapter } from '../adapters/tool-define/langchain-adapter';
+import { GenericToolDefineAdapter, OpenAIToolDefineAdapter } from '../adapters/tool-define/generic-adapter';
 import {
   ToolConfig,
   ToolExecutionContext,
@@ -77,9 +77,9 @@ export class ToolHub {
    */
   private initializeAdapters(): void {
     // 注册默认适配器
-    this.registerAdapter('langchain', new LangChainAdapter());
-    this.registerAdapter('generic', new GenericAdapter());
-    this.registerAdapter('openai', new OpenAIAdapter());
+    this.registerAdapter('langchain', new LangChainToolDefineAdapter());
+    this.registerAdapter('generic', new GenericToolDefineAdapter());
+    this.registerAdapter('openai', new OpenAIToolDefineAdapter());
   }
 
   /**
