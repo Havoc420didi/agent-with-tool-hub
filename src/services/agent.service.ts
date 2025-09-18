@@ -2,14 +2,10 @@
 
 import { AgentBuilder } from '../core/agent-builder';
 import { ChatRequest, ChatHistoryMessage } from '../core/types';
-import { MemoryService } from './memory.service';
 
 export class AgentService {
   private agents: Map<string, AgentBuilder> = new Map();
-  private memoryService: MemoryService;
-
   constructor() {
-    this.memoryService = new MemoryService(this.agents);
   }
 
   // 创建 Agent
@@ -278,47 +274,4 @@ export class AgentService {
     }
   }
 
-  // ==================== 记忆管理方法 ====================
-
-  /**
-   * 获取记忆服务实例
-   */
-  getMemoryService(): MemoryService {
-    return this.memoryService;
-  }
-
-  /**
-   * 获取聊天历史（委托给记忆服务）
-   */
-  async getChatHistory(agentId: string, threadId: string, limit?: number) {
-    return await this.memoryService.getChatHistory(agentId, threadId, limit);
-  }
-
-  /**
-   * 清空聊天历史（委托给记忆服务）
-   */
-  async clearChatHistory(agentId: string, threadId: string) {
-    return await this.memoryService.clearChatHistory(agentId, threadId);
-  }
-
-  /**
-   * 获取会话列表（委托给记忆服务）
-   */
-  async getThreads(agentId: string) {
-    return await this.memoryService.getThreads(agentId);
-  }
-
-  /**
-   * 设置记忆模式（委托给记忆服务）
-   */
-  async setMemoryMode(agentId: string, mode: 'api' | 'lg') {
-    return await this.memoryService.setMemoryMode(agentId, mode);
-  }
-
-  /**
-   * 获取记忆统计信息（委托给记忆服务）
-   */
-  async getMemoryStats(agentId: string) {
-    return await this.memoryService.getMemoryStats(agentId);
-  }
 }

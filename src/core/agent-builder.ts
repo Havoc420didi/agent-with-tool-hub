@@ -18,12 +18,12 @@ import {
   ChatRequest,
   ChatHistoryMessage
 } from './types';
-import { MemoryManagerImpl, createMemoryManager } from './memory-manager';
 import { 
   ToolExecutionStrategyFactory, 
   ToolCallManager, 
   ToolExecutionStrategy 
 } from './tool-execution-strategy';
+import { MemoryManagerImpl } from './memory-manager';
 
 // 加载环境变量
 config({ path: resolve(process.cwd(), './config.env') });
@@ -38,12 +38,11 @@ export class AgentBuilder {
   private checkpointer?: MemorySaver;
   private toolCallManager!: ToolCallManager;
   private toolExecutionStrategy!: ToolExecutionStrategy;
-  private memoryManager!: MemoryManagerImpl;
 
   constructor(config: AgentConfig) {
     this.config = config;
     this.initializeModel();
-    this.initializeMemory(); // TODO ？
+    this.initializeMemory();
   }
 
   /**
@@ -52,7 +51,6 @@ export class AgentBuilder {
   initialize(): void {
     this.toolHub = createToolHub();
     this.initializeToolExecutionStrategy(); // TODO
-    this.initializeMemoryManager();
     this.initializeTools();
     this.buildWorkflow();
   }
@@ -119,13 +117,6 @@ export class AgentBuilder {
     }
   }
 
-  /**
-   * 初始化记忆管理器
-   */
-  private initializeMemoryManager(): void {
-    const maxHistory = this.config.memory?.maxHistory || 50;
-    this.memoryManager = createMemoryManager(maxHistory);
-  }
 
   /**
    * 构建工作流
@@ -242,7 +233,7 @@ export class AgentBuilder {
       // LangGraph会自动从checkpointer中恢复历史
     }
 
-    // 添加当前用户消息
+    // 添加当前用户消息 // TODO 区分 Human 和 Tool（对于 outside 模式）
     messages.push(new HumanMessage(message));
 
     const config: any = {};
@@ -292,45 +283,7 @@ export class AgentBuilder {
       }
     }
 
-    // 保存消息到记忆管理器（用于API模式的历史记录管理）
-    if (memoryMode === 'api') {
-      // 保存用户消息
-      await this.memoryManager.saveMessage(actualThreadId, {
-        type: 'human',
-        content: message,
-        timestamp: new Date().toISOString(),
-        metadata: { messageId: `human_${Date.now()}` }
-      });
-
-      // 保存AI回复
-      await this.memoryManager.saveMessage(actualThreadId, {
-        type: 'ai',
-        content: typeof lastMessage.content === 'string' ? lastMessage.content : '',
-        timestamp: new Date().toISOString(),
-        toolCalls: lastMessage.tool_calls?.map(tc => ({
-          id: tc.id || `tool_${Date.now()}`,
-          name: tc.name,
-          args: tc.args
-        })),
-        metadata: { messageId: `ai_${Date.now()}` }
-      });
-
-      // 保存工具调用结果
-      if (toolCalls.length > 0) {
-        for (const toolCall of toolCalls) {
-          await this.memoryManager.saveMessage(actualThreadId, {
-            type: 'tool',
-            content: toolCall.result,
-            timestamp: new Date().toISOString(),
-            toolResult: toolCall.result,
-            metadata: { 
-              messageId: `tool_${Date.now()}`,
-              toolName: toolCall.toolName
-            }
-          });
-        }
-      }
-    }
+    // API模式下不需要保存消息，客户端通过chatHistory传递完整历史记录
 
     return {
       content: typeof lastMessage.content === 'string' ? lastMessage.content : '',
@@ -507,37 +460,6 @@ export class AgentBuilder {
 
   // ==================== 记忆管理方法 ====================
 
-  /**
-   * 获取聊天历史
-   */
-  async getChatHistory(threadId: string, limit?: number): Promise<ChatHistoryMessage[]> {
-    return await this.memoryManager.getHistory(threadId, limit);
-  }
-
-  /**
-   * 清空聊天历史
-   */
-  async clearChatHistory(threadId: string): Promise<void> {
-    await this.memoryManager.clearHistory(threadId);
-  }
-
-  /**
-   * 获取所有会话列表
-   */
-  async getThreads(): Promise<string[]> {
-    return await this.memoryManager.getThreads();
-  }
-
-  /**
-   * 获取记忆管理器
-   */
-  getMemoryManager(): MemoryManagerImpl {
-    if (!this.memoryManager) {
-      const maxHistory = this.config.memory?.maxHistory || 50;
-      this.memoryManager = createMemoryManager(maxHistory);
-    }
-    return this.memoryManager;
-  }
 
   /**
    * 设置记忆模式
@@ -554,12 +476,10 @@ export class AgentBuilder {
    * 获取记忆统计信息
    */
   getMemoryStats(): any {
-    const memoryManager = this.getMemoryManager();
     return {
       memoryMode: this.config.memory?.mode || 'lg',
       memoryEnabled: this.config.memory?.enabled || false,
-      maxHistory: this.config.memory?.maxHistory || 50,
-      stats: memoryManager.getStats()
+      maxHistory: this.config.memory?.maxHistory || 50
     };
   }
 

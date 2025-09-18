@@ -128,7 +128,7 @@ export function createChatRoutes(): Router {
 
       // 执行聊天
       let result;
-      if (streaming) { // TODO 效果不是很好
+      if (streaming) { // TODO 效果不太对
         console.log('开始流式响应处理...');
         
         // 设置状态码为 200
@@ -234,26 +234,28 @@ export function createChatRoutes(): Router {
     }
   });
 
-  // 获取Agent缓存状态
-  router.get('/agents/cache', async (ctx) => {
+  // 获取Agent状态
+  router.get('/agents/status', async (ctx) => {
     try {
       const service = initializeAgentService();
-      const memoryService = service.getMemoryService();
+      const agentsResult = await service.listAgents();
       
-      // 获取所有Agent的统计信息
-      const allStats = await memoryService.getAllMemoryStats();
-      
-      if (!allStats.success) {
+      if (!agentsResult.success) {
         ctx.status = 500;
-        ctx.body = allStats;
+        ctx.body = agentsResult;
         return;
       }
-
+      
+      const agentList = (agentsResult.data || []).map(id => ({
+        id,
+        status: 'active'
+      }));
+      
       ctx.body = {
         success: true,
         data: {
-          totalAgents: allStats.data?.totalAgents || 0,
-          agents: allStats.data?.agents || []
+          totalAgents: agentList.length,
+          agents: agentList
         }
       };
     } catch (error) {
@@ -303,27 +305,23 @@ export function createChatRoutes(): Router {
   router.delete('/agents/cache', async (ctx) => {
     try {
       const service = initializeAgentService();
-      const memoryService = service.getMemoryService();
+      const agentsResult = await service.listAgents();
+      const count = agentsResult.success ? (agentsResult.data?.length || 0) : 0;
       
-      // 获取当前Agent数量
-      const allStats = await memoryService.getAllMemoryStats();
-      const count = allStats.success ? (allStats.data?.totalAgents || 0) : 0;
-      
-      // 清空所有记忆
-      const result = await memoryService.clearAllMemory();
-      
-      if (result.success) {
-        ctx.body = {
-          success: true,
-          data: {
-            message: `已清理 ${count} 个Agent缓存`,
-            clearedAgents: result.data?.totalAgents || 0
-          }
-        };
-      } else {
-        ctx.status = 500;
-        ctx.body = result;
+      // 清空所有Agent
+      if (agentsResult.success && agentsResult.data) {
+        for (const agentId of agentsResult.data) {
+          await service.deleteAgent(agentId);
+        }
       }
+      
+      ctx.body = {
+        success: true,
+        data: {
+          message: `已清理 ${count} 个Agent缓存`,
+          clearedAgents: count
+        }
+      };
     } catch (error) {
       ctx.status = 500;
       ctx.body = {
@@ -341,21 +339,26 @@ export function createChatRoutes(): Router {
     try {
       const { threadId } = ctx.params;
       const service = initializeAgentService();
-      const memoryService = service.getMemoryService();
+      // 清空特定thread的Agent
+      const result = await service.deleteAgent(threadId);
+      const success = result.success;
       
-      // 清空特定thread的记忆
-      const result = await memoryService.clearChatHistory(threadId, threadId);
-      
-      if (result.success) {
+      if (success) {
         ctx.body = {
           success: true,
           data: {
-            message: `Thread ${threadId} 的记忆已清空`
+            message: `Thread ${threadId} 的Agent已清空`
           }
         };
       } else {
         ctx.status = 404;
-        ctx.body = result;
+        ctx.body = {
+          success: false,
+          error: {
+            code: 'AGENT_NOT_FOUND',
+            message: `Thread ${threadId} 的Agent不存在`
+          }
+        };
       }
     } catch (error) {
       ctx.status = 500;

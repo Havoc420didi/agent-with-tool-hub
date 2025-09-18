@@ -5,7 +5,6 @@ import { AgentService } from '../services/agent.service';
 import { createHealthRoutes } from './health.routes';
 import { createChatRoutes } from './chat.routes';
 import { createToolRoutes } from './tool.routes';
-import { createMemoryRoutes } from './memory.routes';
 
 // 统一API前缀配置
 const API_PREFIX = '/api';
@@ -23,7 +22,6 @@ export function createAllRoutes(): Router {
   router.use(createHealthRoutes().routes());
   router.use(createChatRoutes().routes());
   router.use(createToolRoutes().routes());
-  router.use('/memory', createMemoryRoutes().routes());
 
   return router;
 }
@@ -32,4 +30,3 @@ export function createAllRoutes(): Router {
 export { createHealthRoutes } from './health.routes';
 export { createChatRoutes } from './chat.routes';
 export { createToolRoutes } from './tool.routes';
-export { createMemoryRoutes } from './memory.routes';
