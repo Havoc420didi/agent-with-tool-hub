@@ -23,6 +23,7 @@ import {
   ToolExecutionStrategy 
 } from './tool-execution-strategy';
 import { MemoryManagerImpl } from './memory-manager';
+import { LangChainToolExecutor } from '../tool-hub/adapters/tool-exec/langchain-executor';
 
 // 加载环境变量
 config({ path: resolve(process.cwd(), './config.env') });
@@ -31,7 +32,7 @@ export class AgentBuilder {
   private toolHub!: ToolHub;
   private config: AgentConfig;
   private model!: ChatOpenAI;
-  private toolNode!: any; // 使用 tool-hub 导出的工具执行器
+  private toolNode!: LangChainToolExecutor; // 使用 tool-hub 导出的工具执行器
   private workflow!: any;
   private app: any;
   private checkpointer?: MemorySaver;

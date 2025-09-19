@@ -1,6 +1,6 @@
 // tool-hub.ts - ToolHub 主类
 
-import { EnhancedToolRegistry } from './tool-registry';
+import { ToolRegistry } from './tool-registry';
 import { ToolExecutor } from './tool-executor';
 import { createToolHubLogger, Logger } from '../utils/logger';
 import { LangChainToolDefineAdapter } from '../adapters/tool-define/langchain-adapter';
@@ -30,7 +30,7 @@ import {
  * ToolHub - 集中式工具管理中心
  */
 export class ToolHub {
-  private registry: EnhancedToolRegistry;  // 增强的工具注册表（集成依赖管理）
+  private registry: ToolRegistry;  // 增强的工具注册表（集成依赖管理）
   private executor: ToolExecutor;  // 工具执行器；internal 模式下可用
   private config: ToolHubConfig;
   private eventListeners: Map<ToolHubEventType, Set<ToolHubEventListener>> = new Map();
@@ -65,7 +65,7 @@ export class ToolHub {
       level: this.config.logLevel
     });
 
-    this.registry = new EnhancedToolRegistry(this.config.validators);
+    this.registry = new ToolRegistry(this.config.validators);
     this.executor = new ToolExecutor(this.config.caching ? this.config.cacheConfig : undefined);
     
     // 初始化默认适配器
@@ -429,7 +429,7 @@ export class ToolHub {
   /**
    * 获取工具注册表（用于高级操作）
    */
-  getRegistry(): EnhancedToolRegistry {
+  getRegistry(): ToolRegistry {
     return this.registry;
   }
 

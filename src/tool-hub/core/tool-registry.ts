@@ -65,7 +65,7 @@ export interface ToolAvailabilityStatus {
 /**
  * 工具注册表 - 集成依赖管理功能
  */
-export class EnhancedToolRegistry {
+export class ToolRegistry {
   private tools: Map<string, EnhancedToolRegistration> = new Map();
   private tags: Map<string, Set<string>> = new Map();
   private validators: Array<(config: ToolConfig) => boolean | string> = [];
