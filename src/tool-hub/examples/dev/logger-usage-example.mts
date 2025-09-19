@@ -5,7 +5,7 @@ import {
   createToolHubLogger, 
   createToolRegistryLogger,
   Logger 
-} from '../utils/logger';
+} from '../../utils/logger';
 
 /**
  * 示例：如何在不同的模块中使用日志工具

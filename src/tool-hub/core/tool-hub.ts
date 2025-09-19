@@ -1,6 +1,6 @@
 // tool-hub.ts - ToolHub 主类
 
-import { ToolRegistry } from './tool-registry';
+import { EnhancedToolRegistry } from './tool-registry';
 import { ToolExecutor } from './tool-executor';
 import { createToolHubLogger, Logger } from '../utils/logger';
 import { LangChainToolDefineAdapter } from '../adapters/tool-define/langchain-adapter';
@@ -8,7 +8,6 @@ import { GenericToolDefineAdapter, OpenAIToolDefineAdapter } from '../adapters/t
 import { ToolExecutorFactory } from '../adapters/tool-exec';
 import {
   ToolConfig,
-  ToolExecutionContext,
   ToolExecutionOptions,
   ToolExecutionResult,
   ToolHubConfig,
@@ -24,13 +23,14 @@ import {
   ToolDefineFrameworkAdapter,
   ToolConversionOptions,
   ToolExecutorConfig,
+  ToolExecutionContext,
 } from '../types/index';
 
 /**
  * ToolHub - 集中式工具管理中心
  */
 export class ToolHub {
-  private registry: ToolRegistry;
+  private registry: EnhancedToolRegistry;  // 增强的工具注册表（集成依赖管理）
   private executor: ToolExecutor;  // 工具执行器；internal 模式下可用
   private config: ToolHubConfig;
   private eventListeners: Map<ToolHubEventType, Set<ToolHubEventListener>> = new Map();
@@ -65,7 +65,7 @@ export class ToolHub {
       level: this.config.logLevel
     });
 
-    this.registry = new ToolRegistry(this.config.validators);
+    this.registry = new EnhancedToolRegistry(this.config.validators);
     this.executor = new ToolExecutor(this.config.caching ? this.config.cacheConfig : undefined);
     
     // 初始化默认适配器
@@ -94,7 +94,7 @@ export class ToolHub {
   }
 
   /**
-   * 注册工具
+   * 注册工具（支持依赖关系）
    */
   register(config: ToolConfig): ToolRegistrationResult {
     const result = this.registry.register(config);
@@ -103,6 +103,7 @@ export class ToolHub {
       this.emit('tool.registered', {
         toolName: config.name,
         config,
+        dependencyGroups: config.dependencyGroups || [],
         timestamp: new Date()
       });
       this.logger.info(`工具 "${config.name}" 注册成功`, { toolName: config.name });
@@ -117,7 +118,7 @@ export class ToolHub {
   }
 
   /**
-   * 批量注册工具
+   * 批量注册工具（支持依赖关系）
    */
   registerBatch(configs: ToolConfig[]): BatchToolRegistrationResult {
     const result = this.registry.registerBatch(configs);
@@ -205,6 +206,11 @@ export class ToolHub {
       // 更新使用统计
       this.registry.updateUsage(name);
       
+      // 记录工具执行到注册表
+      if (result.success && executionOptions.context) {
+        this.registry.recordToolExecution(name, executionOptions.context);
+      }
+      
       if (result.success) {
         this.emit('tool.executed', {
           toolName: name,
@@ -276,7 +282,7 @@ export class ToolHub {
   }
 
   /**
-   * 搜索工具
+   * 搜索工具（支持可用性过滤）
    */
   search(options: ToolSearchOptions = {}): ToolSearchResult {
     return this.registry.search(options);
@@ -423,7 +429,7 @@ export class ToolHub {
   /**
    * 获取工具注册表（用于高级操作）
    */
-  getRegistry(): ToolRegistry {
+  getRegistry(): EnhancedToolRegistry {
     return this.registry;
   }
 
@@ -529,7 +535,7 @@ export class ToolHub {
     return this.adapters.has(format);
   }
 
-  // ==================== 工具执行器导出功能 ====================
+  // ==================== 「工具执行器」导出功能 ====================
 
   /**
    * 导出工具执行器
@@ -589,6 +595,124 @@ export class ToolHub {
     } catch (error) {
       this.logger.warn('无法检查执行器框架支持', { error });
       return false;
+    }
+  }
+
+  // ==================== 工具依赖管理 ====================
+
+  /**
+   * 获取当前可用的工具（基于依赖关系）
+   */
+  getAvailableTools(): ToolConfig[] {
+    return this.registry.getAvailableTools();
+  }
+
+  /**
+   * 获取工具可用性状态
+   */
+  getToolAvailabilityStatus(toolName: string) {
+    return this.registry.getToolAvailabilityStatus(toolName);
+  }
+
+  /**
+   * 获取所有工具可用性状态
+   */
+  getAllToolAvailabilityStatus() {
+    return this.registry.getAllToolAvailabilityStatus();
+  }
+
+  /**
+   * 获取工具依赖图
+   */
+  getDependencyGraph() {
+    return this.registry.getDependencyGraph();
+  }
+
+  /**
+   * 获取工具执行路径建议
+   */
+  getExecutionPathSuggestion(targetTool: string): string[] {
+    return this.registry.getExecutionPathSuggestion(targetTool);
+  }
+
+  /**
+   * 重置工具执行状态
+   */
+  resetToolExecution(toolName: string): void {
+    this.registry.resetToolExecution(toolName);
+    this.logger.info(`工具 "${toolName}" 执行状态已重置`);
+  }
+
+  /**
+   * 重置所有工具执行状态
+   */
+  resetAllToolExecution(): void {
+    this.registry.resetAllToolExecution();
+    this.logger.info('所有工具执行状态已重置');
+  }
+
+  /**
+   * 获取工具统计信息
+   */
+  getToolStatistics() {
+    return this.registry.getToolStatistics();
+  }
+
+  /**
+   * 导出可用工具为指定格式（基于依赖关系）
+   */
+  exportAvailableTools(format: string = 'langchain', options: ToolConversionOptions = {}): any[] {
+    const adapter = this.adapters.get(format);
+    if (!adapter) {
+      throw new Error(`不支持的导出格式: ${format}`);
+    }
+
+    const availableTools = this.getAvailableTools();
+    const convertedTools = adapter.convertTools(availableTools);
+    
+    this.logger.info(`导出可用工具: ${format}`, { 
+      format, 
+      toolCount: availableTools.length 
+    });
+    
+    return convertedTools;
+  }
+
+  /**
+   * 导出可用工具执行器（基于依赖关系）
+   */
+  exportAvailableToolExecutor(framework: string = 'langchain', config?: ToolExecutorConfig): any {
+    try {
+      // 获取可用的工具并转换为指定框架格式
+      const tools = this.exportAvailableTools(framework);
+      
+      if (tools.length === 0) {
+        this.logger.warn('没有可用的工具来创建执行器', { framework });
+        return null;
+      }
+
+      // 创建执行器
+      const executor = ToolExecutorFactory.createExecutor(framework, this, tools, config);
+      
+      this.logger.info(`可用工具执行器已导出: ${framework}`, { 
+        framework, 
+        toolCount: tools.length 
+      });
+      
+      this.emit('tool.executor.exported', {
+        framework,
+        toolCount: tools.length,
+        timestamp: new Date(),
+        type: 'available_tools'
+      });
+
+      return executor;
+    } catch (error) {
+      this.logger.error(`导出可用工具执行器失败: ${error instanceof Error ? error.message : String(error)}`, {
+        framework,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
     }
   }
 }

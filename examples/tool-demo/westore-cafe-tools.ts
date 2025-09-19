@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { 
   ToolConfig, 
   ToolResult, 
-  ToolPermissionLevel, 
   ToolSecurityLevel,
+  ToolDependency,
+  ToolDependencyGroup,
   createToolConfig 
 } from '../../src/tool-hub/types/tool.types';
 
@@ -55,7 +56,7 @@ interface CartItem {
 }
 
 /**
- * 西城咖啡工具集合
+ * Westore Cafe 工具集合
  */
 export class WestoreCafeTools {
   /**
@@ -208,7 +209,19 @@ export class WestoreCafeTools {
         }
       },
       tags: ['westore', 'cafe', 'goods', 'display', 'specification'],
-      securityLevel: ToolSecurityLevel.HUMAN
+      // dependencyGroups: [
+      //   {
+      //     type: 'sequence',
+      //     description: '需要按顺序执行：先获取商品详情，再展示规格信息',
+      //     dependencies: [
+      //       {
+      //         toolName: 'getGoodsDetail',
+      //         type: 'required',
+      //         description: '获取商品详情'
+      //       }
+      //     ]
+      //   }
+      // ]
     });
   }
 
@@ -254,7 +267,25 @@ export class WestoreCafeTools {
           );
         }
       },
-      tags: ['westore', 'cafe', 'cart', 'add']
+      tags: ['westore', 'cafe', 'cart', 'add'],
+      dependencyGroups: [
+        {
+          type: 'any',
+          description: '需要先展示商品规格信息或获取商品详情，拿到对应的 skuid',
+          dependencies: [
+            {
+              toolName: 'getGoodsDetail',
+              type: 'required',
+              description: '获取商品详情'
+            },
+            {
+              toolName: 'displayGoodsDetailToUser',
+              type: 'required',
+              description: '展示商品规格信息'
+            }
+          ]
+        }
+      ]
     });
   }
 
@@ -303,7 +334,25 @@ export class WestoreCafeTools {
         }
       },
       tags: ['westore', 'cafe', 'order', 'purchase'],
-      securityLevel: ToolSecurityLevel.HUMAN
+      securityLevel: ToolSecurityLevel.HUMAN,
+      dependencyGroups: [
+        {
+          type: 'any',
+          description: '需要先加入购物车或展示购物车，让用户在点单前确定将要下单的商品。',
+          dependencies: [
+            {
+              toolName: 'addToCart',
+              type: 'required',
+              description: '加入购物车'
+            },
+            {
+              toolName: 'displayShopCart',
+              type: 'required',
+              description: '展示购物车'
+            }
+          ]
+        }
+      ],
     });
   }
 
@@ -365,7 +414,20 @@ export class WestoreCafeTools {
           );
         }
       },
-      tags: ['westore', 'cafe', 'cart', 'delete']
+      tags: ['westore', 'cafe', 'cart', 'delete'],
+      dependencyGroups: [
+        {
+          type: 'all',
+          description: '需要同时满足：展示购物车和确认商品信息',
+          dependencies: [
+            {
+              toolName: 'displayShopCart',
+              type: 'required',
+              description: '展示购物车内容'
+            }
+          ]
+        }
+      ],
     });
   }
 
@@ -425,7 +487,7 @@ export class WestoreCafeTools {
   static displayShopCart(): ToolConfig {
     return createToolConfig({
       name: 'displayShopCart',
-      description: '通过 UI 组件的方式展示购物车，通常在用户询问购物车时调用；以及在 order 点单之前必须先调用 displayShopCart 展示购物车，等待用户确认后再执行 order 下单。',
+      description: '通过 UI 组件的方式展示购物车，通常在用户询问购物车时调用；以及在 order 点单之前必须先调用 displayShopCart 或之前调用过 addShopCart 展示购物车，等待用户确认后再执行 order 下单。',
       schema: z.object({}),
       handler: async () => {
         try {
@@ -467,7 +529,7 @@ export class WestoreCafeTools {
   }
 
   /**
-   * 获取所有西城咖啡工具
+   * 获取所有 Westore Cafe 工具
    */
   static getAll(): ToolConfig[] {
     return [

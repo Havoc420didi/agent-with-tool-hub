@@ -3,6 +3,56 @@
 import { z } from 'zod';
 
 /**
+ * 工具依赖关系类型
+ */
+export interface ToolDependency {
+  /** 依赖的工具名称 */
+  toolName: string;
+  /** 依赖类型 */
+  type: 'required' | 'optional' | 'alternative';
+  /** 依赖条件（可选） */
+  condition?: (context: ToolExecutionContext) => boolean;
+  /** 依赖描述 */
+  description?: string;
+}
+
+/**
+ * 工具依赖组 - 支持复杂的依赖逻辑
+ */
+export interface ToolDependencyGroup {
+  /** 依赖组类型 */
+  type: 'any' | 'all' | 'sequence';
+  /** 依赖组内的依赖关系 */
+  dependencies: ToolDependency[];
+  /** 依赖组描述 */
+  description?: string;
+  /** 依赖组条件（可选） */
+  condition?: (context: ToolExecutionContext) => boolean;
+}
+
+/**
+ * 工具执行上下文
+ */
+export interface ToolExecutionContext {
+  /** 执行ID */
+  executionId: string;
+  /** 用户ID */
+  userId?: string;
+  /** 会话ID */
+  sessionId?: string;
+  /** 请求ID */
+  requestId?: string;
+  /** 线程ID */
+  threadId?: string;
+  /** 额外元数据 */
+  metadata?: Record<string, any>;
+  /** 已执行的工具历史 */
+  executedTools?: string[];
+  /** 工具执行结果历史 */
+  toolResults?: Map<string, any>;
+}
+
+/**
  * 工具执行结果
  */
 export interface ToolResult {
@@ -67,6 +117,8 @@ export interface ToolConfig {
   config?: Record<string, any>;
   /** 是否启用，默认为 true */
   enabled?: boolean;
+  /** 工具依赖组 */
+  dependencyGroups?: ToolDependencyGroup[];
 }
 
 /**
@@ -121,6 +173,8 @@ export interface ToolSearchOptions {
   description?: string;
   /** 按标签搜索 */
   tags?: string[];
+  /** 按可用性过滤 */
+  available?: boolean;
   /** 按权限级别搜索 */
   permissionLevel?: ToolPermissionLevel;
   /** 按安全级别搜索 */
