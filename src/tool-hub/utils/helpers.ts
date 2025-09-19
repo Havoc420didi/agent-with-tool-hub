@@ -81,7 +81,6 @@ export class ToolHelpers {
     return (
       config1.name === config2.name &&
       config1.description === config2.description &&
-      config1.category === config2.category &&
       JSON.stringify(config1.tags) === JSON.stringify(config2.tags) &&
       JSON.stringify(config1.config) === JSON.stringify(config2.config)
     );
@@ -94,12 +93,10 @@ export class ToolHelpers {
     return {
       name: config.name,
       description: config.description,
-      category: config.category,
       tags: config.tags,
-      version: config.version,
-      author: config.author,
       enabled: config.enabled !== false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
   }
 
@@ -114,23 +111,8 @@ export class ToolHelpers {
     lines.push(config.description);
     lines.push('');
 
-    if (config.category) {
-      lines.push(`**分类:** ${config.category}`);
-      lines.push('');
-    }
-
     if (config.tags && config.tags.length > 0) {
       lines.push(`**标签:** ${config.tags.join(', ')}`);
-      lines.push('');
-    }
-
-    if (config.version) {
-      lines.push(`**版本:** ${config.version}`);
-      lines.push('');
-    }
-
-    if (config.author) {
-      lines.push(`**作者:** ${config.author}`);
       lines.push('');
     }
 

@@ -272,10 +272,7 @@ export class ToolConfigConverter {
       description: legacyConfig.description,
       schema: legacyConfig.schema || z.object({}),
       handler: legacyConfig.handler,
-      category: legacyConfig.category,
       tags: legacyConfig.tags,
-      version: legacyConfig.version || '1.0.0',
-      author: legacyConfig.author,
       enabled: legacyConfig.enabled !== false,
       config: legacyConfig.config || {}
     };
@@ -288,7 +285,6 @@ export class ToolConfigConverter {
     return {
       name: config.name,
       description: config.description,
-      category: config.category,
       tags: config.tags,
       enabled: config.enabled !== false
     };
