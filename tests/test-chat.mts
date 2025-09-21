@@ -255,7 +255,7 @@ class AdvancedChatTester {
   private printWelcome(): void {
     console.clear();
     console.log('\n' + '='.repeat(80));
-    console.log(`${colors.bgBlue}${colors.white} ☕ westore-cafe AI 助手 - 高级交互式测试 ${colors.reset}`);
+    console.log(`${colors.bgBlue}${colors.white} ☕ westore-cafe ${colors.reset}`);
     console.log('='.repeat(80));
     console.log(`${colors.cyan}会话ID: ${colors.bright}${this.sessionState.threadId || '将在第一次聊天时自动生成'}${colors.reset}`);
     console.log(`${colors.cyan}可用工具: ${colors.yellow}${this.tools.length}个${colors.reset}`);

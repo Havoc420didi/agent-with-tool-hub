@@ -206,10 +206,6 @@ export class AgentBuilder {
     // 使用 ToolHub 导出可用工具为 LangChain 格式
     const langchainTools = this.toolHub.exportAvailableTools('langchain');
     this.model = baseModel.bindTools(langchainTools) as ChatOpenAI;
-    this.logger.info('Agent工具绑定已更新', {
-      availableTools: langchainTools.length,
-      toolNames: langchainTools.map(t => t.name || 'unknown')
-    });
 
     // 使用 ToolHub 重新导出工具执行器（替代手动创建 ToolNode）  // TODO 或许 adapter 能合并一下。
     this.toolNode = this.toolHub.exportToolExecutor('langchain', {
@@ -232,11 +228,6 @@ export class AgentBuilder {
 
     // 重新构建工作流
     this.buildWorkflow();
-    
-    this.logger.info('Agent工具绑定已更新', {
-      availableTools: langchainTools.length,
-      toolNames: langchainTools.map(t => t.name || 'unknown')
-    });
   }
 
   /**
