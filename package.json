@@ -10,7 +10,8 @@
     "start": "tsx src/main.ts",
     "start:dist": "node dist/main.js",
     "chat": "tsx tests/test-chat.mts",
-    "test:quick": "tsx tests/test-quick-chat.mts"
+    "test:quick": "tsx tests/test-quick-chat.mts",
+    "test:config": "tsx scripts/test-config.mts"
   },
   "dependencies": {
     "@langchain/community": "^0.3.55",

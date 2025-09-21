@@ -7,6 +7,7 @@ import * as readline from 'readline';
 config({ path: resolve(process.cwd(), './config.env') });
 
 import { WestoreCafeTools } from '../examples/tool-demo/westore-cafe-tools.js';
+import { ModelConfigManager, ModelConfig } from '../src/config/model-config.js';
 
 // 颜色输出工具
 const colors = {
@@ -48,6 +49,9 @@ interface SessionState {
     streaming: boolean;
     temperature: number;
     model: string;
+    modelProvider: string;
+    apiKey: string;
+    baseURL: string;
   };
 }
 
@@ -57,6 +61,7 @@ interface CLICommand {
   full: string;
   description: string;
   aliases?: string[];
+  category?: string;
 }
 
 // CLI处理结果
@@ -70,24 +75,32 @@ interface CLIResult {
 // 智能CLI处理器
 class SmartCLIProcessor {
   private commands: CLICommand[] = [
-    { short: '/h', full: '/help', description: '显示帮助信息' },
-    { short: '/t', full: '/tools', description: '显示可用工具列表' },
-    { short: '/s', full: '/status', description: '显示会话状态' },
-    { short: '/hi', full: '/history', description: '显示对话历史' },
-    { short: '/c', full: '/config', description: '显示当前配置' },
-    { short: '/st', full: '/stream', description: '切换流式/非流式模式' },
-    { short: '/m', full: '/mode', description: '切换工具执行模式 (internal/outside)' },
-    { short: '/mem', full: '/memory', description: '切换记忆模式 (api/lg)' },
-    { short: '/temp', full: '/temperature', description: '设置温度值 (0-1)' },
-    { short: '/mo', full: '/model', description: '设置模型名称' },
-    { short: '/cl', full: '/clear', description: '清空屏幕' },
-    { short: '/e', full: '/export', description: '导出对话历史 (local|api|both)' },
-    { short: '/r', full: '/reset', description: '重置会话' },
-    { short: '/ex', full: '/exit', description: '退出程序' },
-    // 添加一些会产生冲突的简写来演示功能
-    { short: '/te', full: '/template', description: '管理模板' },
-    { short: '/se', full: '/search', description: '搜索功能' },
-    { short: '/se', full: '/settings', description: '设置管理' }
+    // 基础命令
+    { short: '/h', full: '/help', description: '显示帮助信息', category: '基础' },
+    { short: '/s', full: '/status', description: '显示会话状态', category: '基础' },
+    { short: '/hi', full: '/history', description: '显示对话历史', category: '基础' },
+    { short: '/cl', full: '/clear', description: '清空屏幕', category: '基础' },
+    { short: '/ex', full: '/exit', description: '退出程序', category: '基础' },
+    
+    // 工具相关
+    { short: '/t', full: '/tools', description: '显示可用工具列表', category: '工具' },
+    { short: '/m', full: '/mode', description: '切换工具执行模式 (internal/outside)', category: '工具' },
+    
+    // 模型相关
+    { short: '/ml', full: '/models', description: '显示可用模型列表', category: '模型' },
+    { short: '/ms', full: '/model-switch', description: '切换模型', category: '模型' },
+    { short: '/mo', full: '/model', description: '设置模型名称', category: '模型' },
+    { short: '/mv', full: '/model-validate', description: '验证模型配置', category: '模型' },
+    { short: '/temp', full: '/temperature', description: '设置温度值 (0-1)', category: '模型' },
+    
+    // 配置相关
+    { short: '/c', full: '/config', description: '显示当前配置', category: '配置' },
+    { short: '/st', full: '/stream', description: '切换流式/非流式模式', category: '配置' },
+    { short: '/mem', full: '/memory', description: '切换记忆模式 (api/lg)', category: '配置' },
+    
+    // 数据相关
+    { short: '/e', full: '/export', description: '导出对话历史 (local|api|both)', category: '数据' },
+    { short: '/r', full: '/reset', description: '重置会话', category: '数据' },
   ];
 
   processCommand(input: string): CLIResult {
@@ -178,10 +191,24 @@ class SmartCLIProcessor {
   getAllCommands(): CLICommand[] {
     return [...this.commands];
   }
+
+  getCommandsByCategory(): Record<string, CLICommand[]> {
+    const categorized: Record<string, CLICommand[]> = {};
+    this.commands.forEach(cmd => {
+      const category = cmd.category || '其他';
+      if (!categorized[category]) {
+        categorized[category] = [];
+      }
+      categorized[category].push(cmd);
+    });
+    return categorized;
+  }
 }
 
 const DEFAULT_TOOL_EXEC_MODE = 'internal';
 const DEFAULT_MEMORY_MODE = 'lg';
+
+// 模型配置管理器已从 model-config.ts 导入
 
 class AdvancedChatTester {
   private rl: readline.Interface;
@@ -189,12 +216,17 @@ class AdvancedChatTester {
   private API_BASE_URL: string;
   private tools: any[];
   private smartCLIProcessor: SmartCLIProcessor;
+  private modelManager: ModelConfigManager;
 
   constructor() {
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
     });
+    
+    // 初始化模型管理器
+    this.modelManager = new ModelConfigManager();
+    const currentModel = this.modelManager.getCurrentModel();
     
     this.sessionState = {
       threadId: '', // 将在第一次发送消息时自动生成
@@ -206,13 +238,16 @@ class AdvancedChatTester {
       memoryMode: DEFAULT_MEMORY_MODE, // 默认使用LG模式
       config: {
         streaming: false,
-        temperature: 0,
-        model: 'deepseek-chat'
+        temperature: currentModel?.temperature || 0,
+        model: currentModel?.name || 'deepseek-chat',
+        modelProvider: currentModel?.provider || 'deepseek',
+        apiKey: currentModel?.apiKey || '',
+        baseURL: currentModel?.baseURL || ''
       }
     };
     
     this.API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000';
-    this.tools = WestoreCafeTools.getAll();
+    this.tools = WestoreCafeTools.getAll();  // INFO 这里默认使用 westore 咖啡工具。
     this.smartCLIProcessor = new SmartCLIProcessor();
     
     // 检查必要的环境变量
@@ -223,15 +258,32 @@ class AdvancedChatTester {
    * 检查环境配置
    */
   private checkEnvironment(): void {
-    const requiredVars = ['OPENAI_API_KEY', 'OPENAI_BASE_URL'];
-    const missingVars = requiredVars.filter(varName => !process.env[varName]);
+    const summary = this.modelManager.getConfigSummary();
     
-    if (missingVars.length > 0) {
-      console.log(`${colors.red}❌ 缺少必要的环境变量:${colors.reset}`);
-      missingVars.forEach(varName => {
-        console.log(`${colors.red}   ${varName}${colors.reset}`);
-      });
-      console.log(`${colors.yellow}请检查 config.env 文件配置${colors.reset}\n`);
+    if (summary.totalModels === 0) {
+      console.log(`${colors.red}❌ 未找到可用的模型配置${colors.reset}`);
+      console.log(`${colors.yellow}请检查 config.env 文件中的模型配置${colors.reset}\n`);
+      return;
+    }
+    
+    // 显示配置摘要
+    console.log(`${colors.green}✅ 已加载 ${summary.totalModels} 个模型配置${colors.reset}`);
+    console.log(`${colors.cyan}可用提供商: ${summary.providers.join(', ')}${colors.reset}`);
+    
+    // 显示验证结果
+    if (summary.validation.errorCount > 0) {
+      console.log(`${colors.red}❌ 发现 ${summary.validation.errorCount} 个配置错误${colors.reset}`);
+    }
+    
+    if (summary.validation.warningCount > 0) {
+      console.log(`${colors.yellow}⚠️  发现 ${summary.validation.warningCount} 个配置警告${colors.reset}`);
+    }
+    
+    // 显示当前模型
+    if (summary.currentModel) {
+      console.log(`${colors.cyan}当前模型: ${colors.yellow}${summary.currentModel.name} (${summary.currentModel.provider})${colors.reset}`);
+      console.log(`${colors.dim}  API地址: ${summary.currentModel.baseURL}${colors.reset}`);
+      console.log(`${colors.dim}  最大令牌: ${summary.currentModel.maxTokens || '未设置'}${colors.reset}\n`);
     }
   }
 
@@ -259,6 +311,8 @@ class AdvancedChatTester {
     console.log('='.repeat(80));
     console.log(`${colors.cyan}会话ID: ${colors.bright}${this.sessionState.threadId || '将在第一次聊天时自动生成'}${colors.reset}`);
     console.log(`${colors.cyan}可用工具: ${colors.yellow}${this.tools.length}个${colors.reset}`);
+    console.log(`${colors.cyan}可用模型: ${colors.yellow}${this.modelManager.getAllModels().length}个${colors.reset}`);
+    console.log(`${colors.cyan}当前模型: ${colors.yellow}${this.sessionState.config.model} (${this.sessionState.config.modelProvider})${colors.reset}`);
     console.log(`${colors.cyan}API地址: ${colors.yellow}${this.API_BASE_URL}${colors.reset}`);
     console.log(`${colors.cyan}当前模式: ${colors.yellow}${this.sessionState.config.streaming ? '流式' : '非流式'}${colors.reset}`);
     console.log(`${colors.cyan}工具执行模式: ${colors.yellow}${this.sessionState.toolExecMode}${colors.reset}`);
@@ -272,15 +326,24 @@ class AdvancedChatTester {
   private printHelp(): void {
     console.log(`${colors.bright}${colors.blue}📋 可用命令:${colors.reset}`);
     
-    const commands = this.smartCLIProcessor.getAllCommands();
-    commands.forEach(cmd => {
-      const shortForm = cmd.short.length > 1 ? ` (${cmd.short})` : '';
-      console.log(`${colors.green}  ${cmd.full}${shortForm}${colors.reset} - ${colors.dim}${cmd.description}${colors.reset}`);
+    const categorizedCommands = this.smartCLIProcessor.getCommandsByCategory();
+    const categories = ['基础', '模型', '工具', '配置', '数据'];
+    
+    categories.forEach(category => {
+      const commands = categorizedCommands[category];
+      if (commands && commands.length > 0) {
+        console.log(`\n${colors.bright}${colors.cyan}${category}命令:${colors.reset}`);
+        commands.forEach(cmd => {
+          const shortForm = cmd.short.length > 1 ? ` (${cmd.short})` : '';
+          console.log(`${colors.green}  ${cmd.full}${shortForm}${colors.reset} - ${colors.dim}${cmd.description}${colors.reset}`);
+        });
+      }
     });
     
-    console.log(`${colors.dim}  直接输入消息与AI助手对话${colors.reset}`);
+    console.log(`\n${colors.dim}  直接输入消息与AI助手对话${colors.reset}`);
     console.log(`${colors.yellow}💡 提示: 支持命令前缀匹配，如输入 '/h' 会自动匹配 '/help'${colors.reset}`);
-    console.log(`${colors.yellow}💡 提示: 如果前缀冲突，系统会显示所有可能的命令${colors.reset}\n`);
+    console.log(`${colors.yellow}💡 提示: 如果前缀冲突，系统会显示所有可能的命令${colors.reset}`);
+    console.log(`${colors.yellow}💡 提示: 使用 '/models' 查看所有可用模型，使用 '/model-switch' 快速切换模型${colors.reset}\n`);
   }
 
   /**
@@ -394,8 +457,20 @@ class AdvancedChatTester {
         this.setTemperature(args[0]);
         break;
         
+      case '/models':
+        this.printModels();
+        break;
+        
+      case '/model-switch':
+        this.handleModelSwitch(args);
+        break;
+        
       case '/model':
         this.setModel(args.join(' '));
+        break;
+        
+      case '/model-validate':
+        this.validateModels();
         break;
         
       case '/clear':
@@ -501,12 +576,14 @@ class AdvancedChatTester {
   private printConfig(): void {
     console.log(`\n${colors.bright}${colors.blue}⚙️ 当前配置:${colors.reset}`);
     console.log(`${colors.cyan}  模型: ${colors.yellow}${this.sessionState.config.model}${colors.reset}`);
+    console.log(`${colors.cyan}  提供商: ${colors.yellow}${this.sessionState.config.modelProvider}${colors.reset}`);
     console.log(`${colors.cyan}  温度: ${colors.yellow}${this.sessionState.config.temperature}${colors.reset}`);
     console.log(`${colors.cyan}  流式: ${colors.yellow}${this.sessionState.config.streaming ? '是' : '否'}${colors.reset}`);
     console.log(`${colors.cyan}  工具执行模式: ${colors.yellow}${this.sessionState.toolExecMode}${colors.reset}`);
     console.log(`${colors.cyan}  记忆模式: ${colors.yellow}${this.sessionState.memoryMode}${colors.reset}`);
     console.log(`${colors.cyan}  Thread-ID: ${colors.yellow}${this.sessionState.threadId || '将在第一次聊天时自动生成'}${colors.reset}`);
-    console.log(`${colors.cyan}  API地址: ${colors.yellow}${this.API_BASE_URL}${colors.reset}\n`);
+    console.log(`${colors.cyan}  API地址: ${colors.yellow}${this.API_BASE_URL}${colors.reset}`);
+    console.log(`${colors.cyan}  模型API: ${colors.yellow}${this.sessionState.config.baseURL}${colors.reset}\n`);
   }
 
   /**
@@ -613,6 +690,93 @@ class AdvancedChatTester {
   }
 
   /**
+   * 打印可用模型列表
+   */
+  private printModels(): void {
+    const models = this.modelManager.getAllModels();
+    const currentModel = this.modelManager.getCurrentModel();
+    
+    console.log(`\n${colors.bright}${colors.blue}🤖 可用模型 (${models.length}个):${colors.reset}`);
+    
+    if (models.length === 0) {
+      console.log(`${colors.dim}  暂无可用模型${colors.reset}\n`);
+      return;
+    }
+    
+    models.forEach((model, index) => {
+      const isCurrent = currentModel && model.name === currentModel.name;
+      const status = isCurrent ? `${colors.green}✓ 当前${colors.reset}` : `${colors.dim}  ${colors.reset}`;
+      const providerColor = model.provider === 'deepseek' ? colors.cyan : 
+                           model.provider === 'qwen' ? colors.magenta : colors.blue;
+      
+      console.log(`${status} ${colors.cyan}${index + 1}.${colors.reset} ${colors.yellow}${model.name}${colors.reset}`);
+      console.log(`${colors.dim}     提供商: ${providerColor}${model.provider}${colors.reset}`);
+      console.log(`${colors.dim}     描述: ${model.description || '无描述'}${colors.reset}`);
+      console.log(`${colors.dim}     温度: ${model.temperature}${colors.reset}`);
+      console.log(`${colors.dim}     最大令牌: ${model.maxTokens || '未设置'}${colors.reset}`);
+      console.log(`${colors.dim}     API: ${model.baseURL}${colors.reset}`);
+      console.log();
+    });
+    
+    console.log(`${colors.yellow}💡 使用 /model-switch <模型名称或编号> 来切换模型${colors.reset}\n`);
+  }
+
+  /**
+   * 处理模型切换命令
+   */
+  private handleModelSwitch(args: string[]): void {
+    if (args.length === 0) {
+      console.log(`\n${colors.bright}${colors.blue}🔄 模型切换${colors.reset}`);
+      console.log(`${colors.green}  /model-switch <模型名称>${colors.reset}     - 按名称切换模型`);
+      console.log(`${colors.green}  /model-switch <编号>${colors.reset}        - 按编号切换模型`);
+      console.log(`${colors.green}  /model-switch list${colors.reset}          - 显示模型列表`);
+      console.log(`${colors.dim}用法: /model-switch [模型名称|编号|list]${colors.reset}\n`);
+      return;
+    }
+
+    const input = args[0].toLowerCase();
+    
+    if (input === 'list') {
+      this.printModels();
+      return;
+    }
+
+    const models = this.modelManager.getAllModels();
+    let success = false;
+    let newModel: ModelConfig | null = null;
+
+    // 尝试按编号切换
+    const index = parseInt(input) - 1;
+    if (!isNaN(index) && index >= 0 && index < models.length) {
+      success = this.modelManager.switchToModelByIndex(index);
+      newModel = models[index];
+    } else {
+      // 尝试按名称切换
+      success = this.modelManager.switchToModel(input);
+      if (success) {
+        newModel = this.modelManager.getCurrentModel();
+      }
+    }
+
+    if (success && newModel) {
+      // 更新会话状态
+      this.sessionState.config.model = newModel.name;
+      this.sessionState.config.modelProvider = newModel.provider;
+      this.sessionState.config.apiKey = newModel.apiKey;
+      this.sessionState.config.baseURL = newModel.baseURL;
+      this.sessionState.config.temperature = newModel.temperature;
+      
+      console.log(`${colors.green}✅ 模型已切换为: ${colors.yellow}${newModel.name}${colors.reset}`);
+      console.log(`${colors.cyan}  提供商: ${colors.yellow}${newModel.provider}${colors.reset}`);
+      console.log(`${colors.cyan}  API地址: ${colors.yellow}${newModel.baseURL}${colors.reset}`);
+      console.log(`${colors.cyan}  温度: ${colors.yellow}${newModel.temperature}${colors.reset}\n`);
+    } else {
+      console.log(`${colors.red}❌ 未找到模型: ${input}${colors.reset}`);
+      console.log(`${colors.dim}使用 /models 查看所有可用模型${colors.reset}\n`);
+    }
+  }
+
+  /**
    * 设置模型
    */
   private setModel(modelName: string): void {
@@ -620,8 +784,78 @@ class AdvancedChatTester {
       console.log(`${colors.red}❌ 请提供模型名称${colors.reset}\n`);
       return;
     }
-    this.sessionState.config.model = modelName.trim();
-    console.log(`${colors.green}✅ 模型已设置为 ${modelName}${colors.reset}\n`);
+    
+    // 尝试切换到指定模型
+    const success = this.modelManager.switchToModel(modelName.trim());
+    if (success) {
+      const currentModel = this.modelManager.getCurrentModel();
+      if (currentModel) {
+        // 更新会话状态
+        this.sessionState.config.model = currentModel.name;
+        this.sessionState.config.modelProvider = currentModel.provider;
+        this.sessionState.config.apiKey = currentModel.apiKey;
+        this.sessionState.config.baseURL = currentModel.baseURL;
+        this.sessionState.config.temperature = currentModel.temperature;
+        
+        console.log(`${colors.green}✅ 模型已设置为 ${colors.yellow}${currentModel.name}${colors.reset}`);
+        console.log(`${colors.cyan}  提供商: ${colors.yellow}${currentModel.provider}${colors.reset}\n`);
+      }
+    } else {
+      console.log(`${colors.red}❌ 未找到模型: ${modelName}${colors.reset}`);
+      console.log(`${colors.dim}使用 /models 查看所有可用模型${colors.reset}\n`);
+    }
+  }
+
+  /**
+   * 验证模型配置
+   */
+  private validateModels(): void {
+    console.log(`\n${colors.bright}${colors.blue}🔍 验证模型配置:${colors.reset}`);
+    
+    const validation = this.modelManager.validateAllModels();
+    const models = this.modelManager.getAllModels();
+    
+    if (models.length === 0) {
+      console.log(`${colors.red}❌ 未找到任何模型配置${colors.reset}\n`);
+      return;
+    }
+    
+    if (validation.valid) {
+      console.log(`${colors.green}✅ 所有模型配置验证通过${colors.reset}`);
+      console.log(`${colors.cyan}  已验证 ${models.length} 个模型${colors.reset}`);
+      
+      models.forEach((model, index) => {
+        const isCurrent = this.modelManager.getCurrentModel()?.name === model.name;
+        const status = isCurrent ? `${colors.green}✓ 当前${colors.reset}` : `${colors.dim}  ${colors.reset}`;
+        console.log(`${status} ${colors.cyan}${index + 1}.${colors.reset} ${colors.yellow}${model.name}${colors.reset} (${model.provider})`);
+        console.log(`${colors.dim}     API: ${model.baseURL}${colors.reset}`);
+        console.log(`${colors.dim}     最大令牌: ${model.maxTokens || '未设置'}${colors.reset}`);
+      });
+    } else {
+      console.log(`${colors.red}❌ 发现配置错误:${colors.reset}`);
+      
+      Object.entries(validation.errors).forEach(([modelKey, errors]) => {
+        console.log(`\n${colors.red}  ${modelKey}:${colors.reset}`);
+        errors.forEach(error => {
+          console.log(`${colors.red}    - ${error}${colors.reset}`);
+        });
+      });
+      
+      console.log(`\n${colors.yellow}💡 请修复配置错误后重试${colors.reset}`);
+    }
+    
+    // 显示警告
+    if (Object.keys(validation.warnings).length > 0) {
+      console.log(`\n${colors.yellow}⚠️  配置警告:${colors.reset}`);
+      Object.entries(validation.warnings).forEach(([modelKey, warnings]) => {
+        console.log(`\n${colors.yellow}  ${modelKey}:${colors.reset}`);
+        warnings.forEach(warning => {
+          console.log(`${colors.yellow}    - ${warning}${colors.reset}`);
+        });
+      });
+    }
+    
+    console.log();
   }
 
 
@@ -825,6 +1059,8 @@ class AdvancedChatTester {
    * 重置会话
    */
   private resetSession(): void {
+    const currentModel = this.modelManager.getCurrentModel();
+    
     this.sessionState = {
       threadId: `session_${Date.now()}`,
       messageCount: 0,
@@ -835,8 +1071,11 @@ class AdvancedChatTester {
       memoryMode: DEFAULT_MEMORY_MODE, // 重置为LG模式
       config: {
         streaming: false,
-        temperature: 0,
-        model: 'deepseek-chat'
+        temperature: currentModel?.temperature || 0,
+        model: currentModel?.name || 'deepseek-chat',
+        modelProvider: currentModel?.provider || 'deepseek',
+        apiKey: currentModel?.apiKey || '',
+        baseURL: currentModel?.baseURL || ''
       }
     };
     console.log(`${colors.green}✅ 会话已重置${colors.reset}\n`);
@@ -886,8 +1125,8 @@ class AdvancedChatTester {
       model: {
         name: this.sessionState.config.model,
         temperature: this.sessionState.config.temperature,
-        baseURL: process.env.OPENAI_BASE_URL,
-        apiKey: process.env.OPENAI_API_KEY
+        baseURL: this.sessionState.config.baseURL,
+        apiKey: this.sessionState.config.apiKey
       },
       memory: { 
         enabled: true,
@@ -956,8 +1195,8 @@ class AdvancedChatTester {
       model: {
         name: this.sessionState.config.model,
         temperature: this.sessionState.config.temperature,
-        baseURL: process.env.OPENAI_BASE_URL,
-        apiKey: process.env.OPENAI_API_KEY
+        baseURL: this.sessionState.config.baseURL,
+        apiKey: this.sessionState.config.apiKey
       },
       memory: { 
         enabled: true,
@@ -1241,10 +1480,14 @@ class AdvancedChatTester {
           }
           break;
         case 'reset':
+          const currentModel = this.modelManager.getCurrentModel();
           this.sessionState.config = {
             streaming: false,
-            temperature: 0,
-            model: 'deepseek-chat'
+            temperature: currentModel?.temperature || 0,
+            model: currentModel?.name || 'deepseek-chat',
+            modelProvider: currentModel?.provider || 'deepseek',
+            apiKey: currentModel?.apiKey || '',
+            baseURL: currentModel?.baseURL || ''
           };
           console.log(`${colors.green}✅ 设置已重置为默认值${colors.reset}`);
           break;

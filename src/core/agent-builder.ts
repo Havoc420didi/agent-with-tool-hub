@@ -82,6 +82,12 @@ export class AgentBuilder {
    * 初始化模型
    */
   private initializeModel(): void {
+    this.logger.info('🧠 初始化 LLM 模型配置', {
+      model: this.config.model.name,
+      temperature: this.config.model.temperature || 0,
+      baseURL: this.config.model.baseURL || process.env.OPENAI_BASE_URL,
+      apiKey: this.config.model.apiKey || process.env.OPENAI_API_KEY,
+    });
     this.model = new ChatOpenAI({
       model: this.config.model.name,
       temperature: this.config.model.temperature || 0,
@@ -168,7 +174,6 @@ export class AgentBuilder {
     }
   }
 
-
   /**
    * 构建工作流
    */
@@ -241,14 +246,6 @@ export class AgentBuilder {
     }
     
     this.app = this.workflow.compile(compileOptions);
-  }
-
-  /**
-   * 动态添加工具
-   */
-  addTool(toolConfig: any): void {
-    this.toolHub.register(toolConfig);
-    this.rebuildWorkflow();
   }
 
   /**

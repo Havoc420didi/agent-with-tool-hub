@@ -184,34 +184,6 @@ export class AgentService {
     }
   }
 
-  // 添加工具
-  async addTool(agentId: string, toolRequest: any) {
-    try {
-      const agent = this.agents.get(agentId);
-      if (!agent) {
-        return {
-          success: false,
-          error: {
-            code: 'AGENT_NOT_FOUND',
-            message: `Agent ${agentId} 不存在`
-          }
-        };
-      }
-
-      agent.addTool(toolRequest);
-
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: {
-          code: 'TOOL_ERROR',
-          message: `添加工具失败: ${error instanceof Error ? error.message : String(error)}`
-        }
-      };
-    }
-  }
-
   // 获取工具列表
   async getAgentTools(agentId: string) {
     try {
