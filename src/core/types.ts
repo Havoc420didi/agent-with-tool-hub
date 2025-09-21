@@ -87,6 +87,21 @@ export interface AgentConfig {
   streaming?: boolean;
   /** 工具执行模式配置 */
   toolExecutionConfig?: ToolExecutionConfig;
+  /** 系统提示词配置 */
+  systemPrompt?: {
+    /** 是否启用动态系统提示词 */
+    enabled?: boolean;
+    /** 是否包含不可用工具 */
+    includeUnavailable?: boolean;
+    /** 是否包含参数详情 */
+    includeParameters?: boolean;
+    /** 是否包含统计信息 */
+    includeStatistics?: boolean;
+    /** 是否包含依赖关系 */
+    includeDependencies?: boolean;
+    /** 自定义系统提示词前缀 */
+    customPrefix?: string;
+  };
 }
 
 // Agent 状态接口

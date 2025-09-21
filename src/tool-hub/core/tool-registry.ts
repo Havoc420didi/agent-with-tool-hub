@@ -13,6 +13,79 @@ import {
 } from '../types/index';
 import { Logger, createToolRegistryLogger } from '../utils/logger';
 
+/**
+ * 工具描述信息
+ */
+export interface ToolDescription {
+  /** 工具名称 */
+  name: string;
+  /** 工具描述 */
+  description: string;
+  /** 工具参数模式 */
+  parameters: any;
+  /** 工具标签 */
+  tags?: string[];
+  /** 是否可用 */
+  available: boolean;
+  /** 可用性原因 */
+  availabilityReason?: string;
+  /** 依赖的工具 */
+  dependencies: string[];
+  /** 依赖此工具的其他工具 */
+  dependents: string[];
+}
+
+/**
+ * 依赖关系描述
+ */
+export interface DependencyDescription {
+  /** 工具名称 */
+  toolName: string;
+  /** 依赖的工具列表 */
+  dependsOn: string[];
+  /** 被依赖的工具列表 */
+  dependedBy: string[];
+  /** 依赖组信息 */
+  dependencyGroups?: Array<{
+    type: string;
+    description?: string;
+    dependencies: string[];
+  }>;
+}
+
+/**
+ * 工具能力概览
+ */
+export interface ToolCapabilityOverview {
+  /** 工具描述列表 */
+  tools: ToolDescription[];
+  /** 依赖关系列表 */
+  dependencies: DependencyDescription[];
+  /** 统计信息 */
+  statistics: {
+    totalTools: number;
+    availableTools: number;
+    rootTools: number;
+    leafTools: number;
+  };
+}
+
+/**
+ * 导出格式选项
+ */
+export interface ExportOptions {
+  /** 输出格式 */
+  format?: 'markdown' | 'json' | 'text';
+  /** 是否包含不可用工具 */
+  includeUnavailable?: boolean;
+  /** 是否包含依赖关系 */
+  includeDependencies?: boolean;
+  /** 是否包含统计信息 */
+  includeStatistics?: boolean;
+  /** 是否包含参数详情 */
+  includeParameters?: boolean;
+}
+
 
 /**
  * 增强的工具注册信息 // TODO 或许重构一下
@@ -784,5 +857,234 @@ export class ToolRegistry {
     return Array.from(toolNames)
       .map(name => this.tools.get(name)?.config)
       .filter((config): config is ToolConfig => config !== undefined);
+  }
+
+  // ==================== 工具描述导出 ====================
+
+  // BASE FUNC * 2
+  /**
+   * 获取工具描述列表
+   */
+  getToolDescriptions(options: ExportOptions = {}): ToolDescription[] {
+    const { includeUnavailable = true } = options;
+    const descriptions: ToolDescription[] = [];
+
+    for (const [toolName, registration] of this.tools) {
+      if (!includeUnavailable && !registration.available) {
+        continue;
+      }
+
+      const dependencies: string[] = [];
+      if (registration.config.dependencyGroups) {
+        registration.config.dependencyGroups.forEach(group => {
+          group.dependencies.forEach(dep => {
+            if (!dependencies.includes(dep.toolName)) {
+              dependencies.push(dep.toolName);
+            }
+          });
+        });
+      }
+
+      descriptions.push({
+        name: registration.config.name,
+        description: registration.config.description,
+        parameters: registration.config.schema,
+        tags: registration.config.tags,
+        available: registration.available,
+        availabilityReason: registration.availabilityReason,
+        dependencies,
+        dependents: [...registration.dependents]
+      });
+    }
+
+    return descriptions;
+  }
+
+  /**
+   * 获取依赖关系描述
+   */
+  getDependencyDescriptions(): DependencyDescription[] {
+    const descriptions: DependencyDescription[] = [];
+
+    for (const [toolName, registration] of this.tools) {
+      const dependsOn: string[] = [];
+      const dependencyGroups: Array<{
+        type: string;
+        description?: string;
+        dependencies: string[];
+      }> = [];
+
+      if (registration.config.dependencyGroups) {
+        registration.config.dependencyGroups.forEach(group => {
+          const groupDeps = group.dependencies.map(dep => dep.toolName);
+          dependsOn.push(...groupDeps);
+          
+          dependencyGroups.push({
+            type: group.type,
+            description: group.description,
+            dependencies: groupDeps
+          });
+        });
+      }
+
+      const dependedBy = this.dependencyGraph.edges.get(toolName) 
+        ? Array.from(this.dependencyGraph.edges.get(toolName)!)
+        : [];
+
+      descriptions.push({
+        toolName,
+        dependsOn: [...new Set(dependsOn)],
+        dependedBy,
+        dependencyGroups: dependencyGroups.length > 0 ? dependencyGroups : undefined
+      });
+    }
+
+    return descriptions;
+  }
+
+  // EXPORT WAY * 3
+  /**
+   * 获取工具能力概览
+   */
+  getToolCapabilityOverview(options: ExportOptions = {}): ToolCapabilityOverview {
+    const tools = this.getToolDescriptions(options);
+    const dependencies = options.includeDependencies !== false 
+      ? this.getDependencyDescriptions() 
+      : [];
+    
+    const stats = this.getToolStatistics();
+
+    return {
+      tools,
+      dependencies,
+      statistics: {
+        totalTools: stats.totalTools,
+        availableTools: stats.availableTools,
+        rootTools: stats.rootTools,
+        leafTools: stats.leafTools
+      }
+    };
+  }
+
+  /**
+   * 生成 Markdown 格式的工具描述
+   */
+  generateMarkdownDescription(options: ExportOptions = {}): string {
+    const overview = this.getToolCapabilityOverview(options);
+    const { tools, dependencies, statistics } = overview;
+    
+    let markdown = '# 可用工具列表\n\n';
+    
+    // 统计信息
+    if (options.includeStatistics !== false) {
+      markdown += `## 统计信息\n\n`;
+      markdown += `- 总工具数: ${statistics.totalTools}\n`;
+      markdown += `- 可用工具数: ${statistics.availableTools}\n`;
+      markdown += `- 根工具数: ${statistics.rootTools}\n`;
+      markdown += `- 叶子工具数: ${statistics.leafTools}\n\n`;
+    }
+
+    // 工具列表
+    markdown += `## 工具列表\n\n`;
+    
+    for (const tool of tools) {
+      markdown += `### ${tool.name}\n\n`;
+      markdown += `**描述**: ${tool.description}\n\n`;
+      
+      if (tool.tags && tool.tags.length > 0) {
+        markdown += `**标签**: ${tool.tags.join(', ')}\n\n`;
+      }
+      
+      markdown += `**状态**: ${tool.available ? '✅ 可用' : '❌ 不可用'}\n`;
+      if (tool.availabilityReason) {
+        markdown += `**原因**: ${tool.availabilityReason}\n`;
+      }
+      markdown += '\n';
+      
+      if (tool.dependencies.length > 0) {
+        markdown += `**依赖**: ${tool.dependencies.join(', ')}\n\n`;
+      }
+      
+      if (tool.dependents.length > 0) {
+        markdown += `**被依赖**: ${tool.dependents.join(', ')}\n\n`;
+      }
+      
+      if (options.includeParameters !== false && tool.parameters) {
+        markdown += `**参数**:\n\`\`\`json\n${JSON.stringify(tool.parameters, null, 2)}\n\`\`\`\n\n`;
+      }
+      
+      markdown += '---\n\n';
+    }
+
+    // 依赖关系图
+    if (options.includeDependencies !== false && dependencies.length > 0) {
+      markdown += `## 依赖关系\n\n`;
+      
+      for (const dep of dependencies) {
+        if (dep.dependsOn.length > 0 || dep.dependedBy.length > 0) {
+          markdown += `### ${dep.toolName}\n\n`;
+          
+          if (dep.dependsOn.length > 0) {
+            markdown += `**依赖**: ${dep.dependsOn.join(', ')}\n\n`;
+          }
+          
+          if (dep.dependedBy.length > 0) {
+            markdown += `**被依赖**: ${dep.dependedBy.join(', ')}\n\n`;
+          }
+          
+          if (dep.dependencyGroups && dep.dependencyGroups.length > 0) {
+            markdown += `**依赖组**:\n`;
+            dep.dependencyGroups.forEach(group => {
+              markdown += `- ${group.type}: ${group.dependencies.join(', ')}`;
+              if (group.description) {
+                markdown += ` (${group.description})`;
+              }
+              markdown += '\n';
+            });
+            markdown += '\n';
+          }
+        }
+      }
+    }
+
+    return markdown;
+  }
+
+  /**
+   * 生成系统提示词
+   */
+  generateSystemPrompt(options: ExportOptions = {}): string {
+    const overview = this.getToolCapabilityOverview(options);
+    const { tools, statistics } = overview;
+    
+    let prompt = `你是一个智能助手，可以使用以下工具来帮助用户完成任务。\n\n`;
+    
+    // 统计信息
+    if (options.includeStatistics !== false) {
+      prompt += `当前共有 ${statistics.totalTools} 个工具，其中 ${statistics.availableTools} 个可用。\n\n`;
+    }
+    
+    prompt += `## 可用工具\n\n`;
+    
+    for (const tool of tools) {
+      if (!tool.available) continue;
+      
+      prompt += `### ${tool.name}\n`;
+      prompt += `- 描述: ${tool.description}\n`;
+      
+      if (tool.dependencies.length > 0) {
+        prompt += `- 依赖: ${tool.dependencies.join(', ')}\n`;
+      }
+      
+      prompt += '\n';
+    }
+    
+    prompt += `\n## 使用说明\n\n`;
+    prompt += `1. 工具之间存在依赖关系，请确保先执行依赖的工具\n`;
+    prompt += `2. 只有标记为"可用"的工具才能被调用，对于不可用的工具，其原因在于需要满足设定的依赖条件关系，而非真的不可用\n`;
+    prompt += `3. 调用工具时请提供正确的参数格式\n`;
+    prompt += `4. 如果工具不可用，请检查其依赖是否已满足；如果有依赖，请先执行依赖的工具\n\n`;
+    
+    return prompt;
   }
 }

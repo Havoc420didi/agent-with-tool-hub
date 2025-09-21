@@ -11,3 +11,6 @@ export * from './adapter-tool.types';
 
 // 状态管理相关类型
 export * from './status.types';
+
+// 工具描述导出相关类型
+export * from '../core/tool-registry';

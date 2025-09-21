@@ -3,7 +3,7 @@
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
+import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, MessagesAnnotation, END, START } from "@langchain/langgraph";
 import { MemorySaver } from "@langchain/langgraph";
 import ToolHub, { createToolHub } from '../tool-hub/index';
@@ -93,6 +93,35 @@ export class AgentBuilder {
   }
 
   /**
+   * 获取系统提示词（基于当前可用工具）
+   */
+  getSystemPrompt(options?: {
+    includeUnavailable?: boolean;
+    includeParameters?: boolean;
+    includeStatistics?: boolean;
+    includeDependencies?: boolean;
+  }): string {
+    if (!this.toolHub) {
+      return '你是一个智能助手，可以帮助用户完成任务。';
+    }
+
+    try {
+      const registry = this.toolHub.getRegistry();
+      return registry.generateSystemPrompt({
+        includeUnavailable: options?.includeUnavailable || false,
+        includeParameters: options?.includeParameters !== false,
+        includeStatistics: options?.includeStatistics !== false,
+        includeDependencies: options?.includeDependencies || false
+      });
+    } catch (error) {
+      this.logger.warn('获取系统提示词失败，使用默认提示词', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return '你是一个智能助手，可以帮助用户完成任务。';
+    }
+  }
+
+  /**
    * 初始化工具
    * 只使用基于依赖关系的可用工具，确保工具调用链的完整性
    */
@@ -160,8 +189,41 @@ export class AgentBuilder {
     // 定义调用模型的函数
     const callModel = async (state: AgentState) => {
       const { messages } = state;
-      const response = await this.model.invoke(messages);
-      return { messages: [response] };
+      
+      // 检查是否启用动态系统提示词
+      const systemPromptConfig = this.config.systemPrompt;
+
+      if (systemPromptConfig?.enabled !== false) {
+        // 获取当前系统提示词
+        const systemPrompt = this.getSystemPrompt({
+          includeUnavailable: systemPromptConfig?.includeUnavailable || false,
+          includeParameters: systemPromptConfig?.includeParameters !== false,
+          includeStatistics: systemPromptConfig?.includeStatistics !== false,
+          includeDependencies: systemPromptConfig?.includeDependencies || false
+        });
+        
+        // 添加自定义前缀（如果有）
+        const finalSystemPrompt = systemPromptConfig?.customPrefix 
+          ? `${systemPromptConfig.customPrefix}\n\n${systemPrompt}`
+          : systemPrompt;
+
+        this.logger.info('🏵️ 系统提示词', {
+          finalSystemPrompt
+        });
+        
+        // 构建包含系统提示词的消息列表
+        const messagesWithSystem = [
+          new SystemMessage(finalSystemPrompt),
+          ...messages
+        ];
+        
+        const response = await this.model.invoke(messagesWithSystem);
+        return { messages: [response] };
+      } else {
+        // 如果禁用动态系统提示词，直接使用原始消息
+        const response = await this.model.invoke(messages);
+        return { messages: [response] };
+      }
     };
 
     // 创建状态图 // INFO 非常简单的状态图，只有 agent 和 tools 两个节点。
@@ -809,6 +871,57 @@ export class AgentBuilder {
     return this.toolHub.getToolStatesSummary();
   }
 
+  // ==================== 系统提示词管理方法 ====================
+
+  /**
+   * 设置系统提示词配置
+   */
+  setSystemPromptConfig(config: {
+    enabled?: boolean;
+    includeUnavailable?: boolean;
+    includeParameters?: boolean;
+    includeStatistics?: boolean;
+    includeDependencies?: boolean;
+    customPrefix?: string;
+  }): void {
+    if (!this.config.systemPrompt) {
+      this.config.systemPrompt = {};
+    }
+    
+    Object.assign(this.config.systemPrompt, config);
+    
+    this.logger.info('系统提示词配置已更新', {
+      config: this.config.systemPrompt
+    });
+  }
+
+  /**
+   * 获取当前系统提示词配置
+   */
+  getSystemPromptConfig() {
+    return { ...this.config.systemPrompt };
+  }
+
+  /**
+   * 预览系统提示词（不执行）
+   */
+  previewSystemPrompt(options?: {
+    includeUnavailable?: boolean;
+    includeParameters?: boolean;
+    includeStatistics?: boolean;
+    includeDependencies?: boolean;
+  }): string {
+    const systemPrompt = this.getSystemPrompt(options);
+    const systemPromptConfig = this.config.systemPrompt;
+    
+    // 添加自定义前缀（如果有）
+    const finalSystemPrompt = systemPromptConfig?.customPrefix 
+      ? `${systemPromptConfig.customPrefix}\n\n${systemPrompt}`
+      : systemPrompt;
+    
+    return finalSystemPrompt;
+  }
+
   // ==================== 简化的工具绑定更新机制 ====================
 
   /**
@@ -901,6 +1014,13 @@ export function createDefaultAgent(): AgentBuilder {
     memory: {
       enabled: true
     },
-    streaming: true
+    streaming: true,
+    systemPrompt: {
+      enabled: true,
+      includeUnavailable: false,
+      includeParameters: true,
+      includeStatistics: true,
+      includeDependencies: false
+    }
   });
 }

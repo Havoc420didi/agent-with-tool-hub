@@ -25,7 +25,14 @@ export class AgentService {
         model: config.model || { name: "deepseek-chat" },
         tools: config.tools || [],
         memory: config.memory || { enabled: true },
-        toolExecutionConfig: config.toolExecutionConfig
+        toolExecutionConfig: config.toolExecutionConfig,
+        systemPrompt: config.systemPrompt || {
+          enabled: true,
+          includeUnavailable: true,
+          includeParameters: true,
+          includeStatistics: true,
+          includeDependencies: true,
+        }
         // streaming: config.streaming || true,
       });
 

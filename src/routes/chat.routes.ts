@@ -68,6 +68,13 @@ export function createChatRoutes(): Router {
             maxRetries: 3
           }
         },
+        systemPrompt = {
+          enabled: true,
+          includeUnavailable: true,
+          includeParameters: true,
+          includeStatistics: true,
+          includeDependencies: true,
+        },
         // 其他配置
         config = {}
       } = ctx.request.body as any;
@@ -99,7 +106,8 @@ export function createChatRoutes(): Router {
           memory,
           streaming,
           tools: westoreTools,
-          toolExecutionConfig
+          toolExecutionConfig,
+          systemPrompt
         };
         
         try {
