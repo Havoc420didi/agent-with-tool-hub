@@ -81,7 +81,7 @@ class SmartCLIProcessor {
     { short: '/temp', full: '/temperature', description: '设置温度值 (0-1)' },
     { short: '/mo', full: '/model', description: '设置模型名称' },
     { short: '/cl', full: '/clear', description: '清空屏幕' },
-    { short: '/e', full: '/export', description: '导出对话历史' },
+    { short: '/e', full: '/export', description: '导出对话历史 (local|api|both)' },
     { short: '/r', full: '/reset', description: '重置会话' },
     { short: '/ex', full: '/exit', description: '退出程序' },
     // 添加一些会产生冲突的简写来演示功能
@@ -403,7 +403,7 @@ class AdvancedChatTester {
         break;
         
       case '/export':
-        this.exportHistory();
+        await this.handleExportCommand(args);
         break;
         
       case '/reset':
@@ -626,27 +626,176 @@ class AdvancedChatTester {
 
 
   /**
-   * 导出对话历史
+   * 处理导出命令
    */
-  private exportHistory(): void {
+  private async handleExportCommand(args: string[]): Promise<void> {
+    if (args.length === 0) {
+      console.log(`${colors.bright}${colors.blue}📤 导出对话历史${colors.reset}`);
+      console.log(`${colors.green}  /export local${colors.reset}     - 使用本地缓存导出（默认）`);
+      console.log(`${colors.green}  /export api${colors.reset}       - 使用API获取完整历史记录`);
+      console.log(`${colors.green}  /export both${colors.reset}      - 同时使用两种方式导出`);
+      console.log(`${colors.dim}用法: /export [local|api|both]${colors.reset}\n`);
+      return;
+    }
+
+    const mode = args[0].toLowerCase();
+    
+    switch (mode) {
+      case 'local':
+        await this.exportHistoryLocal();
+        break;
+      case 'api':
+        await this.exportHistoryFromAPI();
+        break;
+      case 'both':
+        await this.exportHistoryBoth();
+        break;
+      default:
+        console.log(`${colors.red}❌ 无效的导出模式: ${mode}${colors.reset}`);
+        console.log(`${colors.dim}可用模式: local, api, both${colors.reset}\n`);
+    }
+  }
+
+  /**
+   * 导出对话历史（本地缓存）
+   */
+  private async exportHistoryLocal(): Promise<void> {
+    if (!this.sessionState.threadId) {
+      console.log(`${colors.red}❌ 没有可导出的会话历史${colors.reset}\n`);
+      return;
+    }
+
+    console.log(`${colors.cyan}📤 正在导出对话历史（本地缓存）...${colors.reset}`);
+    
     const exportData = {
       sessionId: this.sessionState.threadId,
       startTime: this.sessionState.startTime,
       endTime: new Date(),
       messageCount: this.sessionState.messageCount,
       config: this.sessionState.config,
-      history: this.sessionState.history
+      history: this.sessionState.history,
+      exportedAt: new Date().toISOString(),
+      version: '1.0',
+      source: 'local_cache'
     };
     
-    const filename = `chat-export-${this.sessionState.threadId}.json`;
-    const fs = require('fs');
+    const filename = `chat-export-local-${this.sessionState.threadId}.json`;
     
     try {
-      fs.writeFileSync(filename, JSON.stringify(exportData, null, 2));
-      console.log(`${colors.green}✅ 对话历史已导出到 ${filename}${colors.reset}\n`);
+      // 确保目录存在
+      const { writeFileSync, mkdirSync } = await import('fs');
+      
+      // 创建目录（如果不存在）
+      try {
+        mkdirSync('data/chat-history', { recursive: true });
+      } catch (e) {
+        // 目录可能已存在，忽略错误
+      }
+      
+      writeFileSync(`data/chat-history/${filename}`, JSON.stringify(exportData, null, 2));
+      console.log(`${colors.green}✅ 对话历史已导出到 data/chat-history/${filename}${colors.reset}`);
+      console.log(`${colors.dim}  导出内容包含本地缓存的聊天记录和元数据${colors.reset}\n`);
     } catch (error) {
       console.log(`${colors.red}❌ 导出失败: ${error}${colors.reset}\n`);
     }
+  }
+
+  /**
+   * 导出对话历史（API获取）
+   */
+  private async exportHistoryFromAPI(): Promise<void> {
+    if (!this.sessionState.threadId) {
+      console.log(`${colors.red}❌ 没有可导出的会话历史${colors.reset}\n`);
+      return;
+    }
+
+    console.log(`${colors.cyan}📤 正在从API获取完整对话历史...${colors.reset}`);
+    
+    try {
+      // 调用 memory API 获取完整历史记录
+      const response = await fetch(`${this.API_BASE_URL}/api/memory/thread/${this.sessionState.threadId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log(`${colors.yellow}⚠️  Thread ${this.sessionState.threadId} 在服务端不存在，可能已被清理${colors.reset}`);
+          console.log(`${colors.dim}  建议使用 /export local 导出本地缓存${colors.reset}\n`);
+          return;
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        console.log(`${colors.red}❌ API返回错误: ${result.error?.message || '未知错误'}${colors.reset}\n`);
+        return;
+      }
+
+      // 构建导出数据
+      const exportData = {
+        sessionId: this.sessionState.threadId,
+        startTime: this.sessionState.startTime,
+        endTime: new Date(),
+        messageCount: result.data.history?.currentState?.messageCount || 0,
+        config: this.sessionState.config,
+        memoryStats: result.data.memoryStats,
+        apiHistory: result.data.history,
+        localHistory: this.sessionState.history,
+        exportedAt: new Date().toISOString(),
+        version: '1.0',
+        source: 'api'
+      };
+      
+      const filename = `chat-export-api-${this.sessionState.threadId}.json`;
+      
+      // 确保目录存在
+      const { writeFileSync, mkdirSync } = await import('fs');
+      
+      try {
+        mkdirSync('data/chat-history', { recursive: true });
+      } catch (e) {
+        // 目录可能已存在，忽略错误
+      }
+      
+      writeFileSync(`data/chat-history/${filename}`, JSON.stringify(exportData, null, 2));
+      
+      console.log(`${colors.green}✅ 对话历史已导出到 data/chat-history/${filename}${colors.reset}`);
+      console.log(`${colors.dim}  导出内容包含API获取的完整历史记录${colors.reset}`);
+      
+      // 显示API获取的详细信息
+      if (result.data.history?.currentState?.messages) {
+        const messages = result.data.history.currentState.messages;
+        console.log(`${colors.cyan}  📊 API历史记录统计:${colors.reset}`);
+        console.log(`${colors.dim}    - 总消息数: ${messages.length}${colors.reset}`);
+        console.log(`${colors.dim}    - 用户消息: ${messages.filter((m: any) => m.type === 'HumanMessage').length}${colors.reset}`);
+        console.log(`${colors.dim}    - AI消息: ${messages.filter((m: any) => m.type === 'AIMessage').length}${colors.reset}`);
+        console.log(`${colors.dim}    - 工具消息: ${messages.filter((m: any) => m.type === 'ToolMessage').length}${colors.reset}`);
+        console.log(`${colors.dim}    - 记忆模式: ${result.data.memoryStats?.memoryMode || 'unknown'}${colors.reset}`);
+      }
+      
+    } catch (error) {
+      console.log(`${colors.red}❌ API导出失败: ${error}${colors.reset}\n`);
+    }
+  }
+
+  /**
+   * 导出对话历史（两种方式）
+   */
+  private async exportHistoryBoth(): Promise<void> {
+    console.log(`${colors.cyan}📤 正在使用两种方式导出对话历史...${colors.reset}\n`);
+    
+    // 先导出本地缓存
+    console.log(`${colors.yellow}1. 导出本地缓存...${colors.reset}`);
+    await this.exportHistoryLocal();
+    
+    // 再导出API数据
+    console.log(`${colors.yellow}2. 导出API数据...${colors.reset}`);
+    await this.exportHistoryFromAPI();
+    
+    console.log(`${colors.green}✅ 双重导出完成！${colors.reset}\n`);
   }
 
   /**

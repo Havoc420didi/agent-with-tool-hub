@@ -1,10 +1,10 @@
 // chat.routes.ts - 聊天相关路由
 
 import Router from 'koa-router';
-import { AgentBuilder } from '../core/agent-builder';
 import { ToolExecutionMode, ChatRequest } from '../core/types';
 import { WestoreCafeTools } from '../../examples/tool-demo/westore-cafe-tools';
 import { AgentService } from '../services/agent.service';
+import Logger from '../utils/logger';
 
 // 全局Agent服务实例，统一管理所有Agent
 let agentService: AgentService;
@@ -20,25 +20,10 @@ function initializeAgentService(): AgentService {
 }
 
 /**
- * 获取或创建Agent实例
+ * 设置Agent服务实例（用于与其他路由共享同一个实例）
  */
-async function getOrCreateAgent(threadId: string, config: any): Promise<AgentBuilder> {
-  const service = initializeAgentService();
-  
-  // 尝试获取现有Agent
-  let agent = service.getAgent(threadId);
-  if (agent) {
-    return agent;
-  }
-
-  // 创建新的Agent实例
-  agent = new AgentBuilder(config);
-  agent.initialize();
-  
-  // 注册到AgentService
-  service.setAgent(threadId, agent);
-  
-  return agent;
+export function setAgentService(service: AgentService): void {
+  agentService = service;
 }
 
 /**
@@ -52,7 +37,7 @@ export function createChatRoutes(): Router {
     try {
       const {
         message,
-        threadId,
+        threadId = `thread_${Date.now()}`,
         // 记忆配置
         chatHistory,
         memoryMode = 'lg', // 默认使用LG模式
@@ -70,11 +55,10 @@ export function createChatRoutes(): Router {
           maxHistory 
         },
         streaming = false,
-        // 工具配置
-        tools = [],
-        toolHubConfig = {},
-        // 工具关系配置
-        toolRelations = {},
+        // TODO 工具配置
+        tools = [], // 工具配置
+        toolHubConfig = {}, // 工具Hub配置
+        toolRelations = {}, // 工具关系配置
         // 工具执行模式配置
         toolExecutionConfig = {
           mode: ToolExecutionMode.INTERNAL,
@@ -100,111 +84,113 @@ export function createChatRoutes(): Router {
         return;
       }
 
-      // TEST 预定义 westore-cafe 工具
-      const westoreTools = WestoreCafeTools.getAll();
+      const service = initializeAgentService();
       
-      // 构建Agent配置
-      const agentConfig = {
-        model,
-        memory,
-        streaming,
-        tools: westoreTools,
-        toolExecutionConfig,
-        // toolRelations,
-      };
-      
-      // 获取或创建Agent实例（保持记忆状态）
-      const agent = await getOrCreateAgent(threadId || 'default', agentConfig);
+      // 检查Agent是否存在，如果不存在则创建
+      let agent = service.getAgent(threadId);
+      if (!agent) {
+        Logger.info(`Agent ${threadId} 不存在，开始创建新Agent`);
+        
+        // TEST 使用 westore 咖啡工具创建Agent
+        const westoreTools = WestoreCafeTools.getAll();
+        
+        const agentConfig = {
+          model,
+          memory,
+          streaming,
+          tools: westoreTools,
+          toolExecutionConfig
+        };
+        
+        try {
+          const createResult = await service.createAgent(threadId, agentConfig);
+          if (!createResult.success) {
+            Logger.error(`创建Agent失败: ${threadId}`, {
+              error: createResult.error,
+              agentConfig
+            });
+            ctx.status = 500;
+            ctx.body = createResult;
+            return;
+          }
+          Logger.info(`Agent ${threadId} 创建成功`);
+        } catch (createError) {
+          Logger.error(`创建Agent异常: ${threadId}`, {
+            error: createError instanceof Error ? createError.message : String(createError),
+            stack: createError instanceof Error ? createError.stack : undefined,
+            agentConfig
+          });
+          throw createError;
+        }
+      } else {
+        Logger.debug(`使用现有Agent: ${threadId}`);
+      }
 
       // 构建聊天请求
       const chatRequest: ChatRequest = {
         message,
-        threadId: threadId || '',
+        threadId,
         chatHistory,
         memoryMode,
         maxHistory,
         config
       };
 
+      Logger.debug('聊天请求', { 
+        threadId, 
+        messageLength: message.length,
+        hasChatHistory: !!chatHistory,
+        memoryMode 
+      });
+
       // 执行聊天
       let result;
-      if (streaming) { // TODO 效果不太对
-        console.log('开始流式响应处理...');
-        
-        // 设置状态码为 200
-        ctx.status = 200;
-        
-        // 流式响应
-        ctx.set({
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Cache-Control',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
-        });
-
-        try {
-          console.log('创建流式流...');
-          const stream = agent.stream(message, threadId || 'default');
-          console.log('流式流创建成功，开始处理数据块...');
-          
-          for await (const chunk of stream) {
-            if (ctx.res.writableEnded) {
-              console.log('响应已结束，停止写入');
-              break; // 如果响应已经结束，停止写入
-            }
-            
-            console.log('处理数据块:', JSON.stringify(chunk, null, 2));
-            
-            const data = {
-              type: 'content',
-              data: chunk,
-              timestamp: new Date().toISOString(),
-              threadId: threadId || 'default'
-            };
-            
-            ctx.res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (streaming) {
+        // 流式响应暂不支持 // TODO 后面可以扩展一下
+        Logger.warn('流式响应请求被拒绝', { threadId });
+        ctx.status = 501;
+        ctx.body = {
+          success: false,
+          error: {
+            code: 'NOT_IMPLEMENTED',
+            message: '流式响应暂不支持'
           }
-          
-          // 发送结束信号
-          if (!ctx.res.writableEnded) {
-            console.log('发送结束信号...');
-            const endData = {
-              type: 'done',
-              data: { success: true },
-              timestamp: new Date().toISOString(),
-              threadId: threadId || 'default'
-            };
-            ctx.res.write(`data: ${JSON.stringify(endData)}\n\n`);
-            ctx.res.end();
-          }
-          
-          console.log('流式响应处理完成');
-          return;
-        } catch (streamError) {
-          console.error('流式响应错误:', streamError);
-          console.error('错误堆栈:', streamError instanceof Error ? streamError.stack : '无堆栈信息');
-          
-          // 发送错误信号
-          if (!ctx.res.writableEnded) {
-            const errorData = {
-              type: 'error',
-              data: { 
-                success: false, 
-                error: streamError instanceof Error ? streamError.message : '流式响应失败' 
-              },
-              timestamp: new Date().toISOString(),
-              threadId: threadId || 'default'
-            };
-            ctx.res.write(`data: ${JSON.stringify(errorData)}\n\n`);
-            ctx.res.end();
-          }
-          return;
-        }
+        };
+        return;
       } else {
-        // 普通响应
-        result = await agent.invoke(chatRequest);
+        // 普通响应 - 使用 AgentService.chat 以确保工具状态被保存
+        try {
+          Logger.debug(`开始执行聊天: ${threadId}`);
+          const chatResult = await service.chat(threadId, chatRequest);
+          
+          if (!chatResult.success) {
+            Logger.error(`聊天执行失败: ${threadId}`, {
+              error: chatResult.error,
+              chatRequest
+            });
+            ctx.status = 500;
+            ctx.body = chatResult;
+            return;
+          }
+          
+          Logger.info(`聊天执行成功: ${threadId}`, {
+            contentLength: chatResult.data?.content?.length || 0,
+            toolCallsCount: chatResult.data?.toolCalls?.length || 0
+          });
+          
+          result = {
+            content: chatResult.data?.content || '',
+            toolCalls: chatResult.data?.toolCalls || [],
+            metadata: chatResult.data?.metadata || {}
+          };
+        } catch (chatError) {
+          Logger.error(`聊天执行异常: ${threadId}`, {
+            error: chatError instanceof Error ? chatError.message : String(chatError),
+            stack: chatError instanceof Error ? chatError.stack : undefined,
+            chatRequest
+          });
+          throw chatError;
+        }
       }
 
       ctx.body = {
@@ -214,15 +200,22 @@ export function createChatRoutes(): Router {
           toolCalls: result.toolCalls,
           metadata: {
             ...result.metadata,
-            threadId: threadId || '',
+            threadId,
             timestamp: new Date().toISOString(),
-            toolsUsed: result.toolCalls?.map(tc => tc.toolName) || [],
-            // toolHubStats: toolHub.getStats()
+            toolsUsed: result.toolCalls?.map(tc => tc.toolName) || []
           }
         }
       };
 
     } catch (error) {
+      const requestBody = ctx.request.body as any;
+      Logger.error('聊天处理失败', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        threadId: requestBody?.threadId || 'unknown',
+        message: requestBody?.message || 'unknown'
+      });
+      
       ctx.status = 500;
       ctx.body = {
         success: false,

@@ -5,11 +5,11 @@ import { ChatRequest, ChatHistoryMessage } from '../core/types';
 
 export class AgentService {
   private agents: Map<string, AgentBuilder> = new Map();
-  constructor() {
-  }
-
+  private toolStates: Map<string, string> = new Map(); // 存储每个 agent 的工具状态
+  
   // 创建 Agent
   async createAgent(agentId: string, config: any) {
+    // agentId 实际就是 route 传递的 threadId
     try {
       if (this.agents.has(agentId)) {
         return {
@@ -25,9 +25,13 @@ export class AgentService {
         model: config.model || { name: "deepseek-chat" },
         tools: config.tools || [],
         memory: config.memory || { enabled: true },
-        streaming: config.streaming || true
+        toolExecutionConfig: config.toolExecutionConfig
+        // streaming: config.streaming || true,
       });
 
+      // 初始化 Agent
+      agent.initialize();
+      
       this.agents.set(agentId, agent);
 
       return {
@@ -79,11 +83,6 @@ export class AgentService {
     return this.agents.get(agentId);
   }
 
-  // 设置 AgentBuilder 实例（用于外部创建）
-  setAgent(agentId: string, agent: AgentBuilder): void {
-    this.agents.set(agentId, agent);
-  }
-
   // 聊天（支持两种记忆方式）
   async chat(agentId: string, request: ChatRequest | { message: string; threadId?: string }) {
     try {
@@ -99,6 +98,16 @@ export class AgentService {
       }
 
       const response = await agent.invoke(request as any);
+
+      // 保存工具状态（用于多轮对话持久化）// TODO 这里有用吗？
+      // try {
+      //   const serializedStates = agent.serializeToolStates();
+      //   if (serializedStates) {
+      //     this.toolStates.set(agentId, serializedStates);
+      //   }
+      // } catch (error) {
+      //   console.error(`保存 Agent ${agentId} 工具状态失败:`, error);
+      // }
 
       return {
         success: true,
@@ -242,6 +251,7 @@ export class AgentService {
       }
 
       this.agents.delete(agentId);
+      this.toolStates.delete(agentId); // 清理工具状态
 
       return { success: true };
     } catch (error) {
@@ -269,6 +279,61 @@ export class AgentService {
         error: {
           code: 'INTERNAL_ERROR',
           message: `获取 Agent 列表失败: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  // 获取Agent的记忆统计信息
+  getAgentMemoryStats(agentId: string) {
+    try {
+      const agent = this.agents.get(agentId);
+      if (!agent) {
+        return {
+          success: false,
+          error: {
+            code: 'AGENT_NOT_FOUND',
+            message: `Agent ${agentId} 不存在`
+          }
+        };
+      }
+
+      return {
+        success: true,
+        data: agent.getMemoryStats()
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'MEMORY_ERROR',
+          message: `获取记忆统计失败: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  // 获取所有Agent的记忆统计信息
+  getAllMemoryStats() {
+    try {
+      const stats = Array.from(this.agents.entries()).map(([agentId, agent]) => ({
+        agentId,
+        ...agent.getMemoryStats()
+      }));
+
+      return {
+        success: true,
+        data: {
+          totalAgents: stats.length,
+          stats
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'MEMORY_ERROR',
+          message: `获取所有记忆统计失败: ${error instanceof Error ? error.message : String(error)}`
         }
       };
     }

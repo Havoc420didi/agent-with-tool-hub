@@ -220,6 +220,161 @@ export class MemoryManagerImpl implements MemoryManager {
       memoryUsage: JSON.stringify(Array.from(this.memory.entries())).length
     };
   }
+
+  /**
+   * 导出聊天历史为指定格式
+   */
+  async exportHistory(threadId: string, format: 'json' | 'txt' | 'md' | 'csv' = 'json'): Promise<string> {
+    const history = await this.getHistory(threadId);
+    const fullHistory = await this.getFullHistory(threadId);
+    
+    switch (format.toLowerCase()) {
+      case 'json':
+        return this.exportAsJSON(fullHistory);
+      case 'txt':
+        return this.exportAsTXT(history);
+      case 'md':
+        return this.exportAsMarkdown(history);
+      case 'csv':
+        return this.exportAsCSV(history);
+      default:
+        throw new Error(`不支持的导出格式: ${format}`);
+    }
+  }
+
+  /**
+   * 导出为JSON格式
+   */
+  private exportAsJSON(chatHistory: ChatHistory): string {
+    const exportData = {
+      metadata: {
+        threadId: chatHistory.threadId,
+        messageCount: chatHistory.messageCount,
+        createdAt: chatHistory.createdAt,
+        updatedAt: chatHistory.updatedAt,
+        exportedAt: new Date().toISOString(),
+        version: '1.0'
+      },
+      messages: chatHistory.messages
+    };
+    
+    return JSON.stringify(exportData, null, 2);
+  }
+
+  /**
+   * 导出为TXT格式
+   */
+  private exportAsTXT(messages: ChatHistoryMessage[]): string {
+    let content = `聊天历史导出\n`;
+    content += `导出时间: ${new Date().toLocaleString()}\n`;
+    content += `消息数量: ${messages.length}\n`;
+    content += `${'='.repeat(50)}\n\n`;
+
+    messages.forEach((msg, index) => {
+      const timestamp = new Date(msg.timestamp).toLocaleString();
+      const role = this.getRoleDisplayName(msg.type);
+      
+      content += `[${index + 1}] ${timestamp} - ${role}\n`;
+      content += `${msg.content}\n`;
+      
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        content += `  🔧 工具调用: ${msg.toolCalls.map(tc => tc.name).join(', ')}\n`;
+      }
+      
+      content += '\n';
+    });
+
+    return content;
+  }
+
+  /**
+   * 导出为Markdown格式
+   */
+  private exportAsMarkdown(messages: ChatHistoryMessage[]): string {
+    let content = `# 聊天历史导出\n\n`;
+    content += `**导出时间:** ${new Date().toLocaleString()}\n`;
+    content += `**消息数量:** ${messages.length}\n\n`;
+    content += `---\n\n`;
+
+    messages.forEach((msg, index) => {
+      const timestamp = new Date(msg.timestamp).toLocaleString();
+      const role = this.getRoleDisplayName(msg.type);
+      const isUser = msg.type === 'human';
+      
+      content += `## ${index + 1}. ${role} (${timestamp})\n\n`;
+      
+      if (isUser) {
+        content += `> ${msg.content.replace(/\n/g, '\n> ')}\n\n`;
+      } else {
+        content += `${msg.content}\n\n`;
+      }
+      
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        content += `**工具调用:**\n`;
+        msg.toolCalls.forEach(tc => {
+          content += `- \`${tc.name}\`\n`;
+          if (tc.args) {
+            content += `  - 参数: \`${JSON.stringify(tc.args)}\`\n`;
+          }
+        });
+        content += '\n';
+      }
+      
+      content += '---\n\n';
+    });
+
+    return content;
+  }
+
+  /**
+   * 导出为CSV格式
+   */
+  private exportAsCSV(messages: ChatHistoryMessage[]): string {
+    let content = '序号,时间,角色,内容,工具调用\n';
+    
+    messages.forEach((msg, index) => {
+      const timestamp = new Date(msg.timestamp).toISOString();
+      const role = this.getRoleDisplayName(msg.type);
+      const contentEscaped = `"${msg.content.replace(/"/g, '""')}"`;
+      const toolCalls = msg.toolCalls ? msg.toolCalls.map(tc => tc.name).join(';') : '';
+      
+      content += `${index + 1},"${timestamp}","${role}",${contentEscaped},"${toolCalls}"\n`;
+    });
+
+    return content;
+  }
+
+  /**
+   * 获取角色显示名称
+   */
+  private getRoleDisplayName(type: string): string {
+    switch (type) {
+      case 'human': return '用户';
+      case 'ai': return 'AI助手';
+      case 'system': return '系统';
+      case 'tool': return '工具';
+      default: return type;
+    }
+  }
+
+  /**
+   * 导出所有会话的历史记录
+   */
+  async exportAllHistory(format: 'json' | 'txt' | 'md' | 'csv' = 'json'): Promise<Record<string, string>> {
+    const threads = await this.getThreads();
+    const results: Record<string, string> = {};
+    
+    for (const threadId of threads) {
+      try {
+        results[threadId] = await this.exportHistory(threadId, format);
+      } catch (error) {
+        console.error(`导出会话 ${threadId} 失败:`, error);
+        results[threadId] = `导出失败: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    
+    return results;
+  }
 }
 
 /**

@@ -3,8 +3,9 @@
 import Router from 'koa-router';
 import { AgentService } from '../services/agent.service';
 import { createHealthRoutes } from './health.routes';
-import { createChatRoutes } from './chat.routes';
+import { createChatRoutes, setAgentService as setChatAgentService } from './chat.routes';
 import { createToolRoutes } from './tool.routes';
+import { createMemoryRoutes, setAgentService as setMemoryAgentService } from './memory.routes';
 
 // 统一API前缀配置
 const API_PREFIX = '/api';
@@ -18,10 +19,15 @@ export function createAllRoutes(): Router {
   // 创建AgentService实例
   const agentService = new AgentService();
 
+  // 设置共享的AgentService实例
+  setChatAgentService(agentService);
+  setMemoryAgentService(agentService);
+
   // 注册各个模块的路由
   router.use(createHealthRoutes().routes());
   router.use(createChatRoutes().routes());
   router.use(createToolRoutes().routes());
+  router.use(createMemoryRoutes().routes());
 
   return router;
 }
@@ -30,3 +36,4 @@ export function createAllRoutes(): Router {
 export { createHealthRoutes } from './health.routes';
 export { createChatRoutes } from './chat.routes';
 export { createToolRoutes } from './tool.routes';
+export { createMemoryRoutes } from './memory.routes';

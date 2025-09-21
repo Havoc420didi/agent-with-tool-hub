@@ -1,6 +1,6 @@
 // hub.types.ts - ToolHub 相关类型定义
 
-import { ToolConfig, ToolResult, ToolExecutionContext, ToolExecutionOptions } from './tool.types';
+import { ToolConfig, ToolResult, ToolExecutionContext, ToolExecutionOptions, BaseToolDependency } from './tool.types';
 
 /**
  * ToolHub 配置
@@ -40,7 +40,11 @@ export type ToolHubEventType =
   | 'tool.execution.completed'
   | 'tool.execution.failed'
   | 'tool.executor.cleaned'
-  | 'tool.executor.exported';
+  | 'tool.executor.exported'
+  // 工具状态管理事件
+  | 'tool.status.changed'
+  | 'tool.availability.changed'
+  | 'tool.rebind.required';
 
 /**
  * ToolHub 事件数据
@@ -108,25 +112,15 @@ export interface ToolHubStatus {
   initialized: boolean;
   /** 工具总数 */
   totalTools: number;
-  /** 启用的工具数 */
-  enabledTools: number;
+  /** 可用的工具数 */
+  availableTools: number;
   /** 最后更新时间 */
   lastUpdated: Date;
   /** 配置信息 */
   config: ToolHubConfig;
 }
 
-/**
- * 工具依赖关系
- */
-export interface ToolDependency {
-  /** 依赖的工具名称 */
-  toolName: string;
-  /** 依赖类型 */
-  type: 'required' | 'optional';
-  /** 版本要求 */
-  version?: string;
-}
+// ToolDependency 现在从 tool.types.ts 导入
 
 /**
  * 工具元数据
@@ -137,7 +131,7 @@ export interface ToolMetadata {
   /** 工具版本 */
   version: string;
   /** 依赖关系 */
-  dependencies?: ToolDependency[];
+  dependencies?: BaseToolDependency[];
   /** 兼容性信息 */
   compatibility?: {
     frameworks: string[];

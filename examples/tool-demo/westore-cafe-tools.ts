@@ -5,8 +5,6 @@ import {
   ToolConfig, 
   ToolResult, 
   ToolSecurityLevel,
-  ToolDependency,
-  ToolDependencyGroup,
   createToolConfig 
 } from '../../src/tool-hub/types/tool.types';
 
@@ -276,12 +274,10 @@ export class WestoreCafeTools {
             {
               toolName: 'getGoodsDetail',
               type: 'required',
-              description: '获取商品详情'
             },
             {
               toolName: 'displayGoodsDetailToUser',
               type: 'required',
-              description: '展示商品规格信息'
             }
           ]
         }
@@ -343,12 +339,10 @@ export class WestoreCafeTools {
             {
               toolName: 'addToCart',
               type: 'required',
-              description: '加入购物车'
             },
             {
               toolName: 'displayShopCart',
               type: 'required',
-              description: '展示购物车'
             }
           ]
         }
@@ -418,12 +412,11 @@ export class WestoreCafeTools {
       dependencyGroups: [
         {
           type: 'all',
-          description: '需要同时满足：展示购物车和确认商品信息',
+          description: '需要先获取购物车，再删除商品',
           dependencies: [
             {
               toolName: 'displayShopCart',
               type: 'required',
-              description: '展示购物车内容'
             }
           ]
         }

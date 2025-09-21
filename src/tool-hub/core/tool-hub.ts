@@ -19,11 +19,13 @@ import {
   ToolSearchResult,
   ToolRegistrationResult,
   BatchToolRegistrationResult,
-  AdapterConfig,
   ToolDefineFrameworkAdapter,
   ToolConversionOptions,
   ToolExecutorConfig,
   ToolExecutionContext,
+  ToolStatus,
+  ToolStatusInfo,
+  ToolStatusManagementConfig,
 } from '../types/index';
 
 /**
@@ -40,11 +42,15 @@ export class ToolHub {
   // 适配器管理
   private adapters: Map<string, ToolDefineFrameworkAdapter> = new Map();
   private defaultAdapter: string = 'langchain';
+  
+  // 工具状态管理
+  private toolStatuses: Map<string, ToolStatusInfo> = new Map();
+  private statusManagementConfig: ToolStatusManagementConfig;
 
   constructor(config: ToolHubConfig = {}) {
     this.config = {
       logging: true,
-      logLevel: 'info',
+      logLevel: 'debug',
       statistics: true,
       caching: true,
       cacheConfig: {
@@ -57,6 +63,15 @@ export class ToolHub {
       },
       validators: [],
       ...config
+    };
+
+    // 初始化状态管理配置
+    this.statusManagementConfig = {
+      enabled: true,
+      failureThreshold: 3,
+      failureDuration: 300000, // 5分钟
+      autoRebind: true,
+      rebindDelay: 10000 // 10秒
     };
 
     // 初始化日志器
@@ -89,6 +104,7 @@ export class ToolHub {
    */
   private initialize(): void {
     this.initialized = true;
+    
     this.emit('hub.initialized', { timestamp: new Date() });
     this.logger.info('ToolHub 已初始化');
   }
@@ -100,12 +116,7 @@ export class ToolHub {
     const result = this.registry.register(config);
     
     if (result.success) {
-      this.emit('tool.registered', {
-        toolName: config.name,
-        config,
-        dependencyGroups: config.dependencyGroups || [],
-        timestamp: new Date()
-      });
+      // 移除了冗余的工具注册事件发送
       this.logger.info(`工具 "${config.name}" 注册成功`, { toolName: config.name });
     } else {
       this.logger.error(`工具 "${config.name}" 注册失败: ${result.error}`, { 
@@ -123,11 +134,7 @@ export class ToolHub {
   registerBatch(configs: ToolConfig[]): BatchToolRegistrationResult {
     const result = this.registry.registerBatch(configs);
     
-    this.logger.info(`批量注册完成: 成功 ${result.success} 个，失败 ${result.failed} 个`, {
-      success: result.success,
-      failed: result.failed,
-      total: result.total
-    });
+    this.logger.info(`批量注册完成: 成功 ${result.success} 个，失败 ${result.failed} 个`);
     
     // 输出失败的工具详细信息
     if (result.failed > 0) {
@@ -146,128 +153,6 @@ export class ToolHub {
   }
 
   /**
-   * 注销工具
-   */
-  unregister(name: string): boolean {
-    const success = this.registry.unregister(name);
-    
-    if (success) {
-      this.emit('tool.unregistered', {
-        toolName: name,
-        timestamp: new Date()
-      });
-      this.logger.info(`工具 "${name}" 已注销`, { toolName: name });
-    } else {
-      this.logger.warn(`工具 "${name}" 不存在`, { toolName: name });
-    }
-
-    return success;
-  }
-
-  /**
-   * 执行工具
-   */
-  async execute(
-    name: string, 
-    input: any, 
-    options: ToolExecutionOptions = {},
-    context?: ToolExecutionContext
-  ): Promise<ToolExecutionResult> {
-    const tool = this.registry.get(name);
-    if (!tool) {
-      const result: ToolExecutionResult = {
-        success: false,
-        error: `工具 "${name}" 不存在`,
-        executionTime: 0,
-        toolName: name,
-        context
-      };
-      
-      this.emit('tool.failed', {
-        toolName: name,
-        error: result.error,
-        timestamp: new Date(),
-        context
-      });
-      
-      return result;
-    }
-
-    // 合并执行选项
-    const executionOptions: ToolExecutionOptions = {
-      ...this.config.defaultExecutionOptions,
-      ...options,
-      context: context || options.context
-    };
-
-    try {
-      const result = await this.executor.execute(tool, input, executionOptions);
-      
-      // 更新使用统计
-      this.registry.updateUsage(name);
-      
-      // 记录工具执行到注册表
-      if (result.success && executionOptions.context) {
-        this.registry.recordToolExecution(name, executionOptions.context);
-      }
-      
-      if (result.success) {
-        this.emit('tool.executed', {
-          toolName: name,
-          result,
-          timestamp: new Date(),
-          context: executionOptions.context
-        });
-        this.logger.debug(`工具 "${name}" 执行成功`, { 
-          toolName: name, 
-          executionTime: result.executionTime 
-        });
-      } else {
-        this.emit('tool.failed', {
-          toolName: name,
-          error: result.error,
-          timestamp: new Date(),
-          context: executionOptions.context
-        });
-        this.logger.error(`工具 "${name}" 执行失败: ${result.error}`, { 
-          toolName: name, 
-          error: result.error 
-        });
-      }
-
-      return result;
-    } catch (error) {
-      const result: ToolExecutionResult = {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        executionTime: 0,
-        toolName: name,
-        context: executionOptions.context
-      };
-
-      this.emit('tool.failed', {
-        toolName: name,
-        error: result.error,
-        timestamp: new Date(),
-        context: executionOptions.context
-      });
-
-      this.logger.error(`工具 "${name}" 执行异常: ${result.error}`, { 
-        toolName: name, 
-        error: result.error 
-      });
-      return result;
-    }
-  }
-
-  /**
-   * 获取工具配置
-   */
-  get(name: string): ToolConfig | undefined {
-    return this.registry.get(name);
-  }
-
-  /**
    * 获取所有工具
    */
   getAll(): ToolConfig[] {
@@ -275,7 +160,8 @@ export class ToolHub {
   }
 
   /**
-   * 获取启用的工具
+   * 获取启用的工具（已废弃，请使用 getAvailableTools）
+   * @deprecated 使用 getAvailableTools() 替代，该方法只返回配置中启用的工具，不考虑依赖关系
    */
   getEnabled(): ToolConfig[] {
     return this.registry.getEnabled();
@@ -309,7 +195,7 @@ export class ToolHub {
     return {
       initialized: this.initialized,
       totalTools: this.registry.size(),
-      enabledTools: this.registry.getEnabled().length,
+      availableTools: this.registry.getAvailableTools().length,
       lastUpdated: new Date(),
       config: this.config
     };
@@ -487,7 +373,7 @@ export class ToolHub {
   // ==================== 工具导出功能 ====================
 
   /**
-   * 导出工具为指定格式
+   * 导出工具为指定格式（基于依赖关系的可用工具）
    */
   exportTools(format: string = 'langchain', options: ToolConversionOptions = {}): any[] {
     const adapter = this.adapters.get(format);
@@ -495,7 +381,7 @@ export class ToolHub {
       throw new Error(`不支持的导出格式: ${format}`);
     }
 
-    const tools = this.registry.getEnabled();
+    const tools = this.registry.getAvailableTools();
     const convertedTools = adapter.convertTools(tools);
     
     return convertedTools;
@@ -538,11 +424,11 @@ export class ToolHub {
   // ==================== 「工具执行器」导出功能 ====================
 
   /**
-   * 导出工具执行器
+   * 导出工具执行器（基于依赖关系的可用工具）
    */
   exportToolExecutor(framework: string = 'langchain', config?: ToolExecutorConfig): any {
     try {
-      // 获取启用的工具并转换为指定框架格式
+      // 获取可用的工具并转换为指定框架格式
       const tools = this.exportTools(framework);
       
       if (tools.length === 0) {
@@ -552,11 +438,6 @@ export class ToolHub {
 
       // 创建执行器
       const executor = ToolExecutorFactory.createExecutor(framework, this, tools, config);
-      
-      this.logger.info(`工具执行器已导出: ${framework}`, { 
-        framework, 
-        toolCount: tools.length 
-      });
       
       this.emit('tool.executor.exported', {
         framework,
@@ -602,6 +483,7 @@ export class ToolHub {
 
   /**
    * 获取当前可用的工具（基于依赖关系）
+   * 这是推荐的工具获取方法，只返回依赖关系满足的工具
    */
   getAvailableTools(): ToolConfig[] {
     return this.registry.getAvailableTools();
@@ -670,11 +552,6 @@ export class ToolHub {
     const availableTools = this.getAvailableTools();
     const convertedTools = adapter.convertTools(availableTools);
     
-    this.logger.info(`导出可用工具: ${format}`, { 
-      format, 
-      toolCount: availableTools.length 
-    });
-    
     return convertedTools;
   }
 
@@ -714,5 +591,346 @@ export class ToolHub {
       });
       throw error;
     }
+  }
+
+  // ==================== 工具状态管理 ====================
+
+  /**
+   * 更新工具状态
+   * @TODO 后面这里 success 或许会适配为更多状态的枚举值
+   */
+  public updateToolStatus(toolName: string, success: boolean, resultOrError?: any, context?: ToolExecutionContext): void {
+    if (!this.statusManagementConfig.enabled) return;
+
+    const currentStatus = this.toolStatuses.get(toolName);
+    const now = new Date();
+
+    if (success) {
+      // 执行成功，重置状态
+      const newStatus: ToolStatusInfo = {
+        toolName,
+        status: ToolStatus.AVAILABLE,
+        lastUpdated: now,
+        consecutiveFailures: 0,
+        lastSuccessTime: now,
+        shouldRebind: false,
+        reason: '执行成功'
+      };
+      
+      this.toolStatuses.set(toolName, newStatus);
+      
+      // 记录工具执行到注册表，这会更新依赖工具的可用性
+      const executionContext = context || {
+        executionId: `exec_${Date.now()}`,
+        sessionId: 'system',
+        threadId: 'system',
+        metadata: { source: 'status_manager' }
+      };
+      this.registry.recordToolExecution(toolName, executionContext);
+      
+      this.logger.debug(`工具 "${toolName}" 状态重置为可用，依赖工具可用性已更新`);
+      
+    } else {
+      // 执行失败，更新失败计数
+      const newConsecutiveFailures = (currentStatus?.consecutiveFailures || 0) + 1;
+      const failureThreshold = this.statusManagementConfig.failureThreshold;
+      
+      let newStatus: ToolStatusInfo;
+      
+      if (newConsecutiveFailures >= failureThreshold) {
+        // 超过失败阈值，标记为失败状态
+        newStatus = {
+          toolName,
+          status: ToolStatus.FAILED,
+          lastUpdated: now,
+          consecutiveFailures: newConsecutiveFailures,
+          lastFailureTime: now,
+          shouldRebind: true,
+          reason: `连续失败 ${newConsecutiveFailures} 次`
+        };
+        
+        this.logger.warn(`工具 "${toolName}" 标记为失败状态，连续失败 ${newConsecutiveFailures} 次`);
+        
+        // 如果需要自动重新绑定，安排重新绑定
+        if (this.statusManagementConfig.autoRebind) {
+          this.scheduleToolRebind();
+        }
+        
+      } else {
+        // 未超过阈值，保持可用状态但增加失败计数
+        newStatus = {
+          toolName,
+          status: ToolStatus.AVAILABLE,
+          lastUpdated: now,
+          consecutiveFailures: newConsecutiveFailures,
+          lastFailureTime: now,
+          shouldRebind: false,
+          reason: `失败 ${newConsecutiveFailures}/${failureThreshold} 次`
+        };
+        
+        this.logger.debug(`工具 "${toolName}" 失败计数增加: ${newConsecutiveFailures}/${failureThreshold}`);
+      }
+      
+      this.toolStatuses.set(toolName, newStatus);
+    }
+
+    // 更新工具注册表中的可用性状态
+    this.updateToolAvailabilityInRegistry(toolName);
+  }
+
+  /**
+   * 更新工具注册表中的可用性状态
+   */
+  private updateToolAvailabilityInRegistry(toolName: string): void {
+    const status = this.toolStatuses.get(toolName);
+    if (status) {
+      // 根据工具状态更新注册表中的可用性
+      const isAvailable = status.status === ToolStatus.AVAILABLE;
+      
+      // 这里可以调用 registry 的方法来更新工具可用性
+      // 由于 registry 目前没有直接的状态更新方法，我们通过事件通知
+      this.emit('tool.availability.changed', {
+        toolName,
+        available: isAvailable,
+        reason: status.reason,
+        timestamp: new Date()
+      });
+    }
+  }
+
+  /**
+   * 安排工具重新绑定
+   */
+  private scheduleToolRebind(): void {
+    // 延迟重新绑定，避免频繁操作
+    setTimeout(() => {
+      this.performToolRebind();
+    }, this.statusManagementConfig.rebindDelay);
+  }
+
+  /**
+   * 执行工具重新绑定
+   */
+  private performToolRebind(): void {
+    try {
+      // 重置失败状态的工具
+      this.resetFailedTools();
+      
+      // 发送重新绑定事件
+      this.emit('tool.rebind.required', {
+        timestamp: new Date(),
+        reason: '工具状态变化需要重新绑定'
+      });
+      
+      this.logger.info('工具重新绑定已安排');
+      
+    } catch (error) {
+      this.logger.error(`工具重新绑定失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * 重置失败状态的工具
+   */
+  private resetFailedTools(): void {
+    const now = new Date();
+    const failureDuration = this.statusManagementConfig.failureDuration;
+    
+    for (const [toolName, status] of this.toolStatuses.entries()) {
+      if (status.status === ToolStatus.FAILED && status.lastFailureTime) {
+        const timeSinceFailure = now.getTime() - status.lastFailureTime.getTime();
+        
+        if (timeSinceFailure >= failureDuration) {
+          // 重置为可用状态
+          this.toolStatuses.set(toolName, {
+            ...status,
+            status: ToolStatus.AVAILABLE,
+            lastUpdated: now,
+            consecutiveFailures: 0,
+            shouldRebind: false,
+            reason: '失败持续时间已过，自动重置'
+          });
+          
+          this.logger.info(`工具 "${toolName}" 自动重置为可用状态`);
+        }
+      }
+    }
+  }
+
+  /**
+   * 获取工具状态
+   */
+  getToolStatus(toolName: string): ToolStatusInfo | undefined {
+    return this.toolStatuses.get(toolName);
+  }
+
+  /**
+   * 获取所有工具状态
+   */
+  getAllToolStatuses(): Map<string, ToolStatusInfo> {
+    return new Map(this.toolStatuses);
+  }
+
+  /**
+   * 获取可用工具列表（基于状态和依赖关系）
+   */
+  getAvailableToolsByStatus(): string[] {
+    const availableTools: string[] = [];
+    
+    // 获取所有注册的工具
+    const allTools = this.registry.getAll();
+    
+    for (const tool of allTools) {
+      const toolName = tool.name;
+      
+      // 检查工具状态
+      const status = this.toolStatuses.get(toolName);
+      if (status && status.status !== ToolStatus.AVAILABLE) {
+        continue; // 工具状态不可用
+      }
+      
+      // 检查依赖关系
+      const availabilityStatus = this.registry.getToolAvailabilityStatus(toolName);
+      if (!availabilityStatus.available) {
+        continue; // 依赖关系不满足
+      }
+      
+      availableTools.push(toolName);
+    }
+    
+    return availableTools;
+  }
+
+  /**
+   * 手动重置工具状态
+   */
+  resetToolStatus(toolName: string): boolean {
+    const status = this.toolStatuses.get(toolName);
+    if (status) {
+      this.toolStatuses.set(toolName, {
+        ...status,
+        status: ToolStatus.AVAILABLE,
+        lastUpdated: new Date(),
+        consecutiveFailures: 0,
+        shouldRebind: false,
+        reason: '手动重置'
+      });
+      
+      this.updateToolAvailabilityInRegistry(toolName);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 手动设置工具状态
+   */
+  setToolStatus(toolName: string, status: ToolStatus, reason?: string): boolean {
+    const currentStatus = this.toolStatuses.get(toolName);
+    if (currentStatus) {
+      this.toolStatuses.set(toolName, {
+        ...currentStatus,
+        status,
+        lastUpdated: new Date(),
+        reason: reason || `手动设置为 ${status}`,
+        shouldRebind: status === ToolStatus.FAILED
+      });
+      
+      this.updateToolAvailabilityInRegistry(toolName);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 更新状态管理配置
+   */
+  updateStatusManagementConfig(config: Partial<typeof this.statusManagementConfig>): void {
+    this.statusManagementConfig = { ...this.statusManagementConfig, ...config };
+    this.logger.info('工具状态管理配置已更新', { config });
+  }
+
+  /**
+   * 获取状态管理配置
+   */
+  getStatusManagementConfig() {
+    return { ...this.statusManagementConfig };
+  }
+
+  /**
+   * 序列化工具状态（用于持久化）
+   */
+  serializeToolStates(): string {
+    const states = Array.from(this.toolStatuses.entries()).map(([toolName, status]) => ({
+      toolName,
+      status: status.status,
+      reason: status.reason,
+      lastUpdated: status.lastUpdated.toISOString(),
+      consecutiveFailures: status.consecutiveFailures,
+      lastSuccessTime: status.lastSuccessTime?.toISOString(),
+      lastFailureTime: status.lastFailureTime?.toISOString(),
+      shouldRebind: status.shouldRebind
+    }));
+    
+    return JSON.stringify({
+      states,
+      config: this.statusManagementConfig,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * 反序列化工具状态（用于恢复）
+   */
+  deserializeToolStates(serializedData: string): boolean {
+    try {
+      const data = JSON.parse(serializedData);
+      
+      // 恢复状态管理配置
+      if (data.config) {
+        this.statusManagementConfig = { ...this.statusManagementConfig, ...data.config };
+      }
+      
+      // 恢复工具状态
+      if (data.states && Array.isArray(data.states)) {
+        this.toolStatuses.clear();
+        
+        for (const stateData of data.states) {
+          this.toolStatuses.set(stateData.toolName, {
+            toolName: stateData.toolName,
+            status: stateData.status,
+            reason: stateData.reason,
+            lastUpdated: new Date(stateData.lastUpdated),
+            consecutiveFailures: stateData.consecutiveFailures,
+            lastSuccessTime: stateData.lastSuccessTime ? new Date(stateData.lastSuccessTime) : undefined,
+            lastFailureTime: stateData.lastFailureTime ? new Date(stateData.lastFailureTime) : undefined,
+            shouldRebind: stateData.shouldRebind
+          });
+        }
+      }
+      
+      this.logger.info(`工具状态已恢复: ${this.toolStatuses.size} 个工具状态`);
+      return true;
+    } catch (error) {
+      this.logger.error('反序列化工具状态失败:', { error: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+  }
+
+  /**
+   * 获取工具状态摘要（用于调试）
+   */
+  getToolStatesSummary(): { [toolName: string]: { status: string; reason?: string; lastUpdated: string } } {
+    const summary: { [toolName: string]: { status: string; reason?: string; lastUpdated: string } } = {};
+    
+    for (const [toolName, status] of this.toolStatuses.entries()) {
+      summary[toolName] = {
+        status: status.status,
+        reason: status.reason,
+        lastUpdated: status.lastUpdated.toISOString()
+      };
+    }
+    
+    return summary;
   }
 }

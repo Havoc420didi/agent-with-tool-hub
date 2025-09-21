@@ -7,9 +7,9 @@ import {
   ToolSearchResult, 
   ToolRegistrationResult,
   BatchToolRegistrationResult,
-  ToolDependency,
   ToolExecutionContext,
-  ToolDependencyGroup
+  ToolDependencyGroup,
+  BaseToolDependency
 } from '../types/index';
 import { Logger, createToolRegistryLogger } from '../utils/logger';
 
@@ -18,8 +18,6 @@ import { Logger, createToolRegistryLogger } from '../utils/logger';
  * 增强的工具注册信息 // TODO 或许重构一下
  */
 export interface EnhancedToolRegistration extends ToolRegistration {
-  /** 工具依赖关系 */
-  dependencies: ToolDependency[];
   /** 依赖此工具的其他工具 */
   dependents: string[];
   /** 是否可用（基于依赖关系） */
@@ -90,21 +88,6 @@ export class ToolRegistry {
 
   // ==================== 依赖关系处理 ====================
 
-  /**
-   * 提取工具依赖关系
-   */
-  private extractDependencies(config: ToolConfig): ToolDependency[] {
-    const deps: ToolDependency[] = [];
-    
-    // 处理依赖组
-    if (config.dependencyGroups) {
-      config.dependencyGroups.forEach(group => {
-        deps.push(...group.dependencies);
-      });
-    }
-    
-    return deps;
-  }
 
   /**
    * 检查工具依赖组是否满足
@@ -143,19 +126,11 @@ export class ToolRegistry {
   /**
    * 检查单个依赖是否满足
    */
-  private checkDependency(dep: ToolDependency, context: ToolExecutionContext): boolean {
+  private checkDependency(dep: BaseToolDependency, context: ToolExecutionContext): boolean {
     const hasExecuted = this.hasToolExecuted(dep.toolName);
     
     if (!hasExecuted) {
       return dep.type === 'optional';
-    }
-    
-    // 检查依赖条件
-    if (dep.condition) {
-      const lastContext = this.getLastExecutionContext(dep.toolName);
-      if (lastContext && !dep.condition(lastContext)) {
-        return dep.type === 'optional';
-      }
     }
     
     return true;
@@ -187,18 +162,14 @@ export class ToolRegistry {
         };
       }
 
-      // 获取依赖关系（支持新的依赖配置）
-      const dependencies = this.extractDependencies(config);
-
       // 创建增强的注册信息
       const registration: EnhancedToolRegistration = {
         config: { ...config, enabled: config.enabled !== false },
         registeredAt: new Date(),
         usageCount: 0,
-        dependencies,
         dependents: [],
-        available: this.isRootNode(dependencies),
-        availabilityReason: this.isRootNode(dependencies) ? '无依赖，立即可用' : '等待依赖满足',
+        available: this.isRootNode(config),
+        availabilityReason: this.isRootNode(config) ? '无依赖，立即可用' : '等待依赖满足',
         lastExecuted: undefined,
         executionCount: 0
       };
@@ -208,7 +179,7 @@ export class ToolRegistry {
       this.dependencyGraph.nodes.set(config.name, registration);
 
       // 更新依赖关系
-      this.updateDependencyEdges(config.name, dependencies);
+      this.updateDependencyEdges(config.name, config);
 
       // 更新标签索引
       if (config.tags) {
@@ -223,7 +194,7 @@ export class ToolRegistry {
       // 更新可用性
       this.updateToolAvailability(config.name);
 
-      this.logger.info(`工具 "${config.name}" 已注册，依赖: ${dependencies.map(d => d.toolName).join(', ')}`);
+      this.logger.info(`工具 "${config.name}" 已注册`);
 
       return {
         success: true,
@@ -266,39 +237,6 @@ export class ToolRegistry {
       results,
       total: configs.length
     };
-  }
-
-  /**
-   * 注销工具
-   */
-  unregister(name: string): boolean {
-    const registration = this.tools.get(name);
-    if (!registration) {
-      this.logger.warn(`尝试注销不存在的工具: "${name}"`);
-      return false;
-    }
-
-    // 从标签索引中移除
-    if (registration.config.tags) {
-      registration.config.tags.forEach(tag => {
-        const tagSet = this.tags.get(tag);
-        if (tagSet) {
-          tagSet.delete(name);
-          if (tagSet.size === 0) {
-            this.tags.delete(tag);
-          }
-        }
-      });
-    }
-
-    // 从依赖图中移除
-    this.removeFromDependencyGraph(name);
-
-    // 从工具映射中移除
-    this.tools.delete(name);
-    this.dependencyGraph.nodes.delete(name);
-
-    return true;
   }
 
   // ==================== 工具检索 ====================
@@ -396,31 +334,7 @@ export class ToolRegistry {
     const missingDependencies: string[] = [];
     const suggestedActions: string[] = [];
 
-    // 检查简单依赖关系
-    for (const dep of registration.dependencies) {
-      const depRegistration = this.tools.get(dep.toolName);
-      if (!depRegistration) {
-        missingDependencies.push(dep.toolName);
-        suggestedActions.push(`注册工具 "${dep.toolName}"`);
-        continue;
-      }
-
-      // 检查依赖是否已执行
-      const hasExecuted = this.hasToolExecuted(dep.toolName);
-      if (!hasExecuted) {
-        missingDependencies.push(dep.toolName);
-        suggestedActions.push(`执行工具 "${dep.toolName}"`);
-      }
-
-      // 检查可选条件
-      if (dep.condition && hasExecuted) {
-        const lastContext = this.getLastExecutionContext(dep.toolName);
-        if (lastContext && !dep.condition(lastContext)) {
-          missingDependencies.push(dep.toolName);
-          suggestedActions.push(`重新执行工具 "${dep.toolName}" 以满足条件`);
-        }
-      }
-    }
+    this.logger.debug(`🧰 获取工具可用性状态: ${toolName}`, { dependencyGroups: registration.config.dependencyGroups });
 
     // 检查复杂依赖组
     if (registration.config.dependencyGroups) {
@@ -428,13 +342,13 @@ export class ToolRegistry {
       
       for (const group of registration.config.dependencyGroups) {
         if (!this.checkDependencyGroup(group, context)) {
-          const groupDeps = group.dependencies.map(dep => dep.toolName);
-          missingDependencies.push(...groupDeps);
+          // 根据依赖组类型，只添加未满足的依赖
+          const unsatisfiedDeps = this.getUnsatisfiedDependencies(group, context);
+          missingDependencies.push(...unsatisfiedDeps);
           suggestedActions.push(`满足依赖组 "${group.description || group.type}"`);
         }
       }
     }
-
 
     const available = missingDependencies.length === 0;
     const reason = available 
@@ -463,12 +377,58 @@ export class ToolRegistry {
   }
 
   /**
+   * 获取依赖组中未满足的依赖
+   */
+  private getUnsatisfiedDependencies(group: ToolDependencyGroup, context: ToolExecutionContext): string[] {
+    const { type, dependencies } = group;
+    const unsatisfiedDeps: string[] = [];
+
+    switch (type) {
+      case 'any':
+        // 对于 any 类型，如果整个组不满足，说明所有依赖都不满足
+        // 但为了更精确的错误信息，我们检查每个依赖
+        for (const dep of dependencies) {
+          if (!this.checkDependency(dep, context)) {
+            unsatisfiedDeps.push(dep.toolName);
+          }
+        }
+        break;
+        
+      case 'all':
+        // 对于 all 类型，添加所有未满足的依赖
+        for (const dep of dependencies) {
+          if (!this.checkDependency(dep, context)) {
+            unsatisfiedDeps.push(dep.toolName);
+          }
+        }
+        break;
+        
+      case 'sequence':
+        // 对于 sequence 类型，从第一个未满足的依赖开始添加
+        for (const dep of dependencies) {
+          if (!this.checkDependency(dep, context)) {
+            unsatisfiedDeps.push(dep.toolName);
+            break; // 序列中第一个未满足的依赖
+          }
+        }
+        break;
+        
+      default:
+        // 默认情况，添加所有依赖
+        unsatisfiedDeps.push(...dependencies.map(dep => dep.toolName));
+    }
+
+    return unsatisfiedDeps;
+  }
+
+  /**
    * 获取所有工具可用性状态
    */
   getAllToolAvailabilityStatus(): ToolAvailabilityStatus[] {
     const statuses: ToolAvailabilityStatus[] = [];
     
     for (const toolName of this.tools.keys()) {
+      // TODO: 这里需要优化，避免重复获取可用性状态；如何比较好的缓存，而不是每次都重复检查。
       statuses.push(this.getToolAvailabilityStatus(toolName));
     }
     
@@ -480,37 +440,25 @@ export class ToolRegistry {
   /**
    * 更新依赖关系边
    */
-  private updateDependencyEdges(toolName: string, dependencies: ToolDependency[]): void {
-    // 添加依赖边
-    dependencies.forEach(dep => {
-      if (!this.dependencyGraph.edges.has(dep.toolName)) {
-        this.dependencyGraph.edges.set(dep.toolName, new Set());
-      }
-      this.dependencyGraph.edges.get(dep.toolName)!.add(toolName);
-      
-      // 更新被依赖工具的 dependents
-      const depRegistration = this.tools.get(dep.toolName);
-      if (depRegistration) {
-        depRegistration.dependents.push(toolName);
-      }
-    });
-
-    // 更新根节点和叶子节点
-    this.updateRootAndLeafNodes();
-  }
-
-  /**
-   * 从依赖图中移除工具
-   */
-  private removeFromDependencyGraph(toolName: string): void {
-    // 移除依赖边
-    this.dependencyGraph.edges.delete(toolName);
-    
-    // 从其他工具的依赖中移除
-    for (const [from, toSet] of this.dependencyGraph.edges) {
-      toSet.delete(toolName);
+  private updateDependencyEdges(toolName: string, config: ToolConfig): void {
+    // 处理依赖组中的依赖关系
+    if (config.dependencyGroups) {
+      config.dependencyGroups.forEach(group => {
+        group.dependencies.forEach(dep => {
+          if (!this.dependencyGraph.edges.has(dep.toolName)) {
+            this.dependencyGraph.edges.set(dep.toolName, new Set());
+          }
+          this.dependencyGraph.edges.get(dep.toolName)!.add(toolName);
+          
+          // 更新被依赖工具的 dependents
+          const depRegistration = this.tools.get(dep.toolName);
+          if (depRegistration) {
+            depRegistration.dependents.push(toolName);
+          }
+        });
+      });
     }
-    
+
     // 更新根节点和叶子节点
     this.updateRootAndLeafNodes();
   }
@@ -523,8 +471,8 @@ export class ToolRegistry {
     this.dependencyGraph.leafNodes.clear();
 
     for (const [toolName, registration] of this.tools) {
-      // 无依赖的是根节点
-      if (registration.dependencies.length === 0) {
+      // 无依赖组的是根节点
+      if (!registration.config.dependencyGroups || registration.config.dependencyGroups.length === 0) {
         this.dependencyGraph.rootNodes.add(toolName);
       }
       
@@ -538,8 +486,8 @@ export class ToolRegistry {
   /**
    * 检查是否为根节点
    */
-  private isRootNode(dependencies: ToolDependency[]): boolean {
-    return dependencies.length === 0;
+  private isRootNode(config: ToolConfig): boolean {
+    return !config.dependencyGroups || config.dependencyGroups.length === 0;
   }
 
   /**
@@ -562,6 +510,7 @@ export class ToolRegistry {
     if (!registration) return;
 
     const availabilityStatus = this.getToolAvailabilityStatus(toolName);
+    this.logger.debug(`🧰 更新工具可用性: ${toolName}`, { availabilityStatus });
     registration.available = availabilityStatus.available;
     registration.availabilityReason = availabilityStatus.reason;
   }
@@ -690,10 +639,15 @@ export class ToolRegistry {
       const registration = this.tools.get(toolName);
       if (!registration) return false;
       
-      for (const dep of registration.dependencies) {
-        if (dfs(dep.toolName)) {
-          path.unshift(dep.toolName);
-          return true;
+      // 检查依赖组中的依赖
+      if (registration.config.dependencyGroups) {
+        for (const group of registration.config.dependencyGroups) {
+          for (const dep of group.dependencies) {
+            if (dfs(dep.toolName)) {
+              path.unshift(dep.toolName);
+              return true;
+            }
+          }
         }
       }
       
@@ -737,7 +691,7 @@ export class ToolRegistry {
     for (const [toolName, registration] of this.tools) {
       registration.executionCount = 0;
       registration.lastExecuted = undefined;
-      registration.available = this.isRootNode(registration.dependencies);
+      registration.available = this.isRootNode(registration.config);
       registration.availabilityReason = registration.available ? '无依赖，立即可用' : '等待依赖满足';
     }
     
@@ -817,30 +771,6 @@ export class ToolRegistry {
     }
 
     return true;
-  }
-
-  /**
-   * 添加验证器
-   */
-  addValidator(validator: (config: ToolConfig) => boolean | string): void {
-    this.validators.push(validator);
-  }
-
-  /**
-   * 移除验证器
-   */
-  removeValidator(validator: (config: ToolConfig) => boolean | string): void {
-    const index = this.validators.indexOf(validator);
-    if (index > -1) {
-      this.validators.splice(index, 1);
-    }
-  }
-
-  /**
-   * 获取所有标签
-   */
-  getTags(): string[] {
-    return Array.from(this.tags.keys());
   }
 
   /**

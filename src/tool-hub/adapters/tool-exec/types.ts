@@ -64,6 +64,7 @@ export interface ToolExecutionContext {
   metadata?: Record<string, any>;
 }
 
+
 /**
  * 工具执行事件
  */
@@ -80,6 +81,14 @@ export interface ToolExecutionEvent {
   data?: any;
   /** 错误信息（失败时） */
   error?: any;
+  /** 工具名称（状态管理需要） */
+  toolName?: string;
+  /** 是否执行成功（状态管理需要） */
+  success?: boolean;
+  /** 执行结果（状态管理需要） */
+  result?: any;
+  /** 执行时间（状态管理需要） */
+  executionTime?: number;
 }
 
 /**
@@ -98,4 +107,17 @@ export interface ToolExecutorConfig {
   timeout?: number;
   /** 框架特定配置 */
   frameworkConfig?: Record<string, any>;
+  /** 工具状态管理配置 */
+  statusManagement?: {
+    /** 是否启用状态管理 */
+    enabled?: boolean;
+    /** 连续失败阈值（超过此次数标记为失败状态） */
+    failureThreshold?: number;
+    /** 失败状态持续时间（毫秒） */
+    failureDuration?: number;
+    /** 是否自动重新绑定工具 */
+    autoRebind?: boolean;
+    /** 重新绑定延迟（毫秒） */
+    rebindDelay?: number;
+  };
 }

@@ -6,9 +6,9 @@ import {
   ToolExecutor, 
   ToolExecutionStats, 
   ToolExecutionContext, 
-  ToolExecutionEvent,
-  ToolExecutorConfig 
+  ToolExecutorConfig
 } from "./types";
+import { createToolExecutorLogger, Logger } from "../../utils/logger";
 
 /**
  * LangChain 工具执行器
@@ -22,6 +22,9 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
   private executorConfig: ToolExecutorConfig;
   private stats: ToolExecutionStats;
   private executionCounter: number = 0;
+  private logger: Logger;
+  
+  // 工具状态管理（只负责报告，不直接管理）
   
   constructor(
     toolHub: ToolHub, 
@@ -38,6 +41,13 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
       enablePerformanceMonitoring: true,
       maxRetries: 0,
       timeout: 30000,
+      statusManagement: {
+        enabled: true,
+        failureThreshold: 3,
+        failureDuration: 300000, // 5分钟
+        autoRebind: true,
+        rebindDelay: 10000 // 10秒
+      },
       ...config
     };
     
@@ -53,6 +63,17 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
         toolNames: langchainTools.map((tool: any) => tool.name || 'unknown')
       }
     };
+    
+    // 初始化 logger
+    this.logger = createToolExecutorLogger({
+      enabled: true,
+      level: 'info',
+      prefix: 'LangChainToolExecutor',
+      timestamp: true,
+      colorize: true
+    });
+    
+    // 工具状态由 ToolHub 管理，不需要在这里初始化
   }
   
   /**
@@ -73,11 +94,6 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
       }
     };
     
-    // 记录执行开始事件
-    if (this.executorConfig.enableEvents) {
-      this.emitEvent('started', context, { state });
-    }
-    
     try {
       // 调用父类的 invoke 方法
       const result = await this.executeWithTimeout(state);
@@ -87,9 +103,12 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
         this.updateStats(true, Date.now() - startTime);
       }
       
-      // 记录执行成功事件
-      if (this.executorConfig.enableEvents) {
-        this.emitEvent('completed', context, { result });
+      // 直接更新工具状态（简化通信）
+      if (this.executorConfig.statusManagement?.enabled) {
+        const toolCalls = this.extractToolCallsFromState(state);
+        for (const toolCall of toolCalls) {
+          this.toolHub.updateToolStatus(toolCall.name, true, result, context);
+        }
       }
       
       return result;
@@ -100,9 +119,12 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
         this.updateStats(false, Date.now() - startTime);
       }
       
-      // 记录执行失败事件
-      if (this.executorConfig.enableEvents) {
-        this.emitEvent('failed', context, { error });
+      // 直接更新工具状态（简化通信）
+      if (this.executorConfig.statusManagement?.enabled) {
+        const toolCalls = this.extractToolCallsFromState(state);
+        for (const toolCall of toolCalls) {
+          this.toolHub.updateToolStatus(toolCall.name, false, error, context);
+        }
       }
       
       throw error;
@@ -111,6 +133,7 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
   
   /**
    * 带超时的执行
+   * @description 带超时的执行，如果执行超时，则抛出错误; 如果没有超时，则 await 常规调用。
    */
   private async executeWithTimeout(state: any): Promise<any> {
     if (!this.executorConfig.timeout || this.executorConfig.timeout <= 0) {
@@ -152,26 +175,7 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
     }
   }
   
-  /**
-   * 发送事件
-   */
-  private emitEvent(
-    type: 'started' | 'completed' | 'failed', 
-    context: ToolExecutionContext, 
-    data?: any
-  ): void {
-    const event: ToolExecutionEvent = {
-      type,
-      framework: this.framework,
-      timestamp: new Date(),
-      context,
-      data,
-      error: type === 'failed' ? data?.error : undefined
-    };
-    
-    // 发送到 tool-hub 的事件系统
-    this.toolHub.publish(`tool.execution.${type}` as any, event);
-  }
+  // 移除了复杂的事件系统，直接调用状态更新方法
   
   /**
    * 生成执行ID
@@ -290,5 +294,22 @@ export class LangChainToolExecutor extends ToolNode implements ToolExecutor {
         toolCount: this.getToolInfo().toolCount
       }
     };
+  }
+
+  // ==================== 工具状态报告方法 ====================
+  // 注意：工具状态管理现在通过事件驱动，不再需要直接报告方法
+
+  /**
+   * 从状态中提取工具调用信息
+   */
+  private extractToolCallsFromState(state: any): any[] {
+    const messages = state.messages || [];
+    const lastMessage = messages[messages.length - 1];
+    
+    if (lastMessage && lastMessage.tool_calls) {
+      return lastMessage.tool_calls;
+    }
+    
+    return [];
   }
 }

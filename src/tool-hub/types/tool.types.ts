@@ -3,18 +3,17 @@
 import { z } from 'zod';
 
 /**
- * 工具依赖关系类型
+ * 基础工具依赖关系（用于元数据）
  */
-export interface ToolDependency {
+export interface BaseToolDependency {
   /** 依赖的工具名称 */
   toolName: string;
   /** 依赖类型 */
-  type: 'required' | 'optional' | 'alternative';
-  /** 依赖条件（可选） */
-  condition?: (context: ToolExecutionContext) => boolean;
-  /** 依赖描述 */
-  description?: string;
+  type: 'required' | 'optional';
+  /** 版本要求 */
+  version?: string;
 }
+
 
 /**
  * 工具依赖组 - 支持复杂的依赖逻辑
@@ -23,7 +22,7 @@ export interface ToolDependencyGroup {
   /** 依赖组类型 */
   type: 'any' | 'all' | 'sequence';
   /** 依赖组内的依赖关系 */
-  dependencies: ToolDependency[];
+  dependencies: BaseToolDependency[];
   /** 依赖组描述 */
   description?: string;
   /** 依赖组条件（可选） */
@@ -31,7 +30,7 @@ export interface ToolDependencyGroup {
 }
 
 /**
- * 工具执行上下文
+ * 工具执行上下文（完整版）
  */
 export interface ToolExecutionContext {
   /** 执行ID */
@@ -129,22 +128,6 @@ export interface ToolRegistration {
   registeredAt: Date;
   lastUsed?: Date;
   usageCount: number;
-}
-
-/**
- * 工具执行上下文
- */
-export interface ToolExecutionContext {
-  /** 执行ID */
-  executionId: string;
-  /** 用户ID */
-  userId?: string;
-  /** 会话ID */
-  sessionId?: string;
-  /** 请求ID */
-  requestId?: string;
-  /** 额外元数据 */
-  metadata?: Record<string, any>;
 }
 
 /**

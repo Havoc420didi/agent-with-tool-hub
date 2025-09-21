@@ -194,6 +194,10 @@ export interface MemoryManager {
   deleteMessage(threadId: string, messageId: string): Promise<boolean>;
   /** 获取会话列表 */
   getThreads(): Promise<string[]>;
+  /** 导出聊天历史为指定格式 */
+  exportHistory(threadId: string, format?: 'json' | 'txt' | 'md' | 'csv'): Promise<string>;
+  /** 导出所有会话的历史记录 */
+  exportAllHistory(format?: 'json' | 'txt' | 'md' | 'csv'): Promise<Record<string, string>>;
 }
 
 /**
