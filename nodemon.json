@@ -5,7 +5,9 @@
   "ext": "ts,js,json,env,mts",
   "exec": "tsx src/main.ts",
   "env": {
-    "NODE_ENV": "development"
+    "NODE_ENV": "development",
+    "PORT": "3000",
+    "HOST": "127.0.0.1"
   },
   "delay": 1000,
   "verbose": true,
