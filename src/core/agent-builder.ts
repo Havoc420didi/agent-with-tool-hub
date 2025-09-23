@@ -24,6 +24,7 @@ import {
 } from './tool-execution-strategy';
 import { MemoryManagerImpl } from './memory-manager';
 import { LangChainToolExecutor } from '../tool-hub/adapters/tool-exec/langchain-executor';
+import { SystemPromptBuilder, SystemPromptOptions, SystemPromptBuildConfig } from './system-prompt-builder';
 import Logger from '../utils/logger';
 
 // 加载环境变量
@@ -39,6 +40,7 @@ export class AgentBuilder {
   private checkpointer?: MemorySaver;
   private toolCallManager!: ToolCallManager;
   private toolExecutionStrategy!: ToolExecutionStrategy;
+  private systemPromptBuilder!: SystemPromptBuilder;
   private logger: typeof Logger;
 
   constructor(config: AgentConfig) {
@@ -54,6 +56,7 @@ export class AgentBuilder {
   initialize(): void {
     this.toolHub = createToolHub();
     this.initializeToolExecutionStrategy(); // TODO
+    this.initializeSystemPromptBuilder();
     this.initializeTools();
     this.buildWorkflow();
   }
@@ -79,6 +82,13 @@ export class AgentBuilder {
   }
 
   /**
+   * 初始化系统提示词构建器
+   */
+  private initializeSystemPromptBuilder(): void {
+    this.systemPromptBuilder = new SystemPromptBuilder(this.toolHub.getRegistry());
+  }
+
+  /**
    * 初始化模型
    */
   private initializeModel(): void {
@@ -99,28 +109,17 @@ export class AgentBuilder {
   }
 
   /**
-   * 获取系统提示词（基于当前可用工具）
+   * 构建系统提示词（统一入口）
    */
-  getSystemPrompt(options?: {
-    includeUnavailable?: boolean;
-    includeParameters?: boolean;
-    includeStatistics?: boolean;
-    includeDependencies?: boolean;
-  }): string {
-    if (!this.toolHub) {
+  buildSystemPrompt(buildConfig: SystemPromptBuildConfig): string {
+    if (!this.systemPromptBuilder) {
       return '你是一个智能助手，可以帮助用户完成任务。';
     }
 
     try {
-      const registry = this.toolHub.getRegistry();
-      return registry.generateSystemPrompt({
-        includeUnavailable: options?.includeUnavailable || false,
-        includeParameters: options?.includeParameters !== false,
-        includeStatistics: options?.includeStatistics !== false,
-        includeDependencies: options?.includeDependencies || false
-      });
+      return this.systemPromptBuilder.buildSystemPromptByKind(buildConfig);
     } catch (error) {
-      this.logger.warn('获取系统提示词失败，使用默认提示词', {
+      this.logger.warn('构建系统提示词失败，使用默认提示词', {
         error: error instanceof Error ? error.message : String(error)
       });
       return '你是一个智能助手，可以帮助用户完成任务。';
@@ -199,26 +198,26 @@ export class AgentBuilder {
       const systemPromptConfig = this.config.systemPrompt;
 
       if (systemPromptConfig?.enabled !== false) {
-        // 获取当前系统提示词
-        const systemPrompt = this.getSystemPrompt({
-          includeUnavailable: systemPromptConfig?.includeUnavailable || false,
-          includeParameters: systemPromptConfig?.includeParameters !== false,
-          includeStatistics: systemPromptConfig?.includeStatistics !== false,
-          includeDependencies: systemPromptConfig?.includeDependencies || false
+        // 获取当前系统提示词（使用默认通用配置）
+        const systemPrompt = this.buildSystemPrompt({
+          kind: 'generic', // INFO 不同的基本 system-prompt 定义
+          config: {},
+          options: {
+            includeUnavailable: systemPromptConfig?.includeUnavailable || false,
+            includeParameters: systemPromptConfig?.includeParameters !== false,
+            includeStatistics: systemPromptConfig?.includeStatistics !== false,
+            includeDependencies: systemPromptConfig?.includeDependencies || false,
+            customPrefix: systemPromptConfig?.customPrefix
+          }
         });
-        
-        // 添加自定义前缀（如果有）
-        const finalSystemPrompt = systemPromptConfig?.customPrefix 
-          ? `${systemPromptConfig.customPrefix}\n\n${systemPrompt}`
-          : systemPrompt;
 
         this.logger.info('🏵️ 系统提示词', {
-          finalSystemPrompt
+          finalSystemPrompt: systemPrompt
         });
         
         // 构建包含系统提示词的消息列表
         const messagesWithSystem = [
-          new SystemMessage(finalSystemPrompt),
+          new SystemMessage(systemPrompt),
           ...messages
         ];
         
@@ -460,6 +459,13 @@ export class AgentBuilder {
    */
   getConfig(): AgentConfig {
     return { ...this.config };
+  }
+
+  /**
+   * 获取系统提示词构建器
+   */
+  getSystemPromptBuilder(): SystemPromptBuilder {
+    return this.systemPromptBuilder;
   }
 
   /**
@@ -902,21 +908,12 @@ export class AgentBuilder {
   /**
    * 预览系统提示词（不执行）
    */
-  previewSystemPrompt(options?: {
-    includeUnavailable?: boolean;
-    includeParameters?: boolean;
-    includeStatistics?: boolean;
-    includeDependencies?: boolean;
-  }): string {
-    const systemPrompt = this.getSystemPrompt(options);
-    const systemPromptConfig = this.config.systemPrompt;
-    
-    // 添加自定义前缀（如果有）
-    const finalSystemPrompt = systemPromptConfig?.customPrefix 
-      ? `${systemPromptConfig.customPrefix}\n\n${systemPrompt}`
-      : systemPrompt;
-    
-    return finalSystemPrompt;
+  previewSystemPrompt(options?: SystemPromptOptions): string {
+    return this.buildSystemPrompt({
+      kind: 'generic',
+      config: {},
+      options
+    });
   }
 
   // ==================== 简化的工具绑定更新机制 ====================

@@ -106,16 +106,6 @@ export class AgentService {
 
       const response = await agent.invoke(request as any);
 
-      // 保存工具状态（用于多轮对话持久化）// TODO 这里有用吗？
-      // try {
-      //   const serializedStates = agent.serializeToolStates();
-      //   if (serializedStates) {
-      //     this.toolStates.set(agentId, serializedStates);
-      //   }
-      // } catch (error) {
-      //   console.error(`保存 Agent ${agentId} 工具状态失败:`, error);
-      // }
-
       return {
         success: true,
         data: {

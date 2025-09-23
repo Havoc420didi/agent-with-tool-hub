@@ -11,7 +11,8 @@
     "start:dist": "node dist/main.js",
     "chat": "tsx tests/test-chat.mts",
     "test:quick": "tsx tests/test-quick-chat.mts",
-    "test:config": "tsx scripts/test-config.mts"
+    "test:config": "tsx scripts/test-config.mts",
+    "test:tool-system-prompt": "tsx tests/test-tool-system-prompt.mts"
   },
   "dependencies": {
     "@langchain/community": "^0.3.55",

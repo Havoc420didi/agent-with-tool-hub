@@ -1057,34 +1057,69 @@ export class ToolRegistry {
     const overview = this.getToolCapabilityOverview(options);
     const { tools, statistics } = overview;
     
-    let prompt = `你是一个智能助手，可以使用以下工具来帮助用户完成任务。\n\n`;
+    let prompt = `# Pre-ToolCall Rules\n这是一个动态工具依赖模块。\n`;
+
+    prompt += `\n## 使用说明\n\n`;
+    prompt += `1. 工具调用顺序：某些工具需要先执行其依赖的工具才能使用\n`;
+    prompt += `2. 工具状态：只有标记为"可用"的工具才能被调用，“待解锁”通常是因为依赖未满足\n`;
+    prompt += `3. 依赖类型说明：\n`;
+    prompt += `   - "任意一个"：满足依赖组中任意一个依赖即可使用\n`;
+    prompt += `   - "全部"：必须满足依赖组中的所有依赖才能使用\n`;
+    prompt += `   - "按顺序"：必须按顺序满足依赖组中的依赖才能使用\n`;
+    prompt += `4. 依赖检查：如果工具不可用，可以根据用户需求，自主决定是否执行前置的依赖工具，然后重新尝试\n\n`;
     
     // 统计信息
     if (options.includeStatistics !== false) {
       prompt += `当前共有 ${statistics.totalTools} 个工具，其中 ${statistics.availableTools} 个可用。\n\n`;
     }
-    
-    prompt += `## 可用工具\n\n`;
-    
-    for (const tool of tools) {
-      if (!tool.available) continue;
-      
-      prompt += `### ${tool.name}\n`;
-      prompt += `- 描述: ${tool.description}\n`;
-      
-      if (tool.dependencies.length > 0) {
-        prompt += `- 依赖: ${tool.dependencies.join(', ')}\n`;
+
+    // 生成工具提示；方便下面分类整理工具
+    const genToolPrompt = (tools: ToolDescription[]) => {
+      for (const tool of tools) {
+        prompt += `### ${tool.name}\n`;
+        prompt += `- 描述: ${tool.description}\n`;
+        
+        // 获取工具的依赖组信息
+        const registration = this.tools.get(tool.name);
+        if (registration && registration.config.dependencyGroups && registration.config.dependencyGroups.length > 0) {
+          prompt += `- 依赖要求:\n`;
+          registration.config.dependencyGroups.forEach(group => {
+            const depNames = group.dependencies.map(dep => dep.toolName).join(', ');
+            const groupType = this.getDependencyGroupTypeDescription(group.type);
+            prompt += `  - ${groupType}: ${depNames}`;
+            if (group.description) {
+              prompt += ` (${group.description})`;
+            }
+            prompt += '\n';
+          });
+        } else if (tool.dependencies.length > 0) {
+          prompt += `- 依赖: ${tool.dependencies.join(', ')}\n`;
+        }
+        prompt += '\n';
       }
-      
-      prompt += '\n';
     }
     
-    prompt += `\n## 使用说明\n\n`;
-    prompt += `1. 工具之间存在依赖关系，请确保先执行依赖的工具\n`;
-    prompt += `2. 只有标记为"可用"的工具才能被调用，对于不可用的工具，其原因在于需要满足设定的依赖条件关系，而非真的不可用\n`;
-    prompt += `3. 调用工具时请提供正确的参数格式\n`;
-    prompt += `4. 如果工具不可用，请检查其依赖是否已满足；如果有依赖，请先执行依赖的工具\n\n`;
+    const availableTools = tools.filter(tool => tool.available);
+    const unavailableTools = tools.filter(tool => !tool.available);
+    
+    prompt += `## 可用工具\n\n`;
+    genToolPrompt(availableTools);
+
+    prompt += `## 待解锁工具\n\n`;
+    genToolPrompt(unavailableTools);
     
     return prompt;
+  }
+
+  /**
+   * 获取依赖组类型的中文描述
+   */
+  private getDependencyGroupTypeDescription(type: string): string {
+    const typeMap: Record<string, string> = {
+      'any': '任意一个',
+      'all': '全部',
+      'sequence': '按顺序'
+    };
+    return typeMap[type] || type;
   }
 }
