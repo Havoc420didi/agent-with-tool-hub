@@ -222,6 +222,11 @@ class AdvancedChatTester {
   private tools: any[];
   private smartCLIProcessor: SmartCLIProcessor;
   private modelManager: ModelConfigManager;
+  private isShuttingDown: boolean = false;
+
+  private get rlClosed(): boolean {
+    return (this.rl as any)?.closed === true;
+  }
 
   constructor() {
     this.rl = readline.createInterface({
@@ -361,8 +366,14 @@ class AdvancedChatTester {
     this.rl.on('SIGINT', () => {
       console.log(`\n${colors.yellow}👋 再见！会话已结束。${colors.reset}`);
       this.sessionState.isActive = false;
+      this.isShuttingDown = true;
       this.rl.close();
       process.exit(0);
+    });
+
+    this.rl.on('close', () => {
+      this.isShuttingDown = true;
+      this.sessionState.isActive = false;
     });
   }
 
@@ -370,7 +381,7 @@ class AdvancedChatTester {
    * 交互循环
    */
   private async interactiveLoop(): Promise<void> {
-    while (this.sessionState.isActive) {
+    while (this.sessionState.isActive && !this.isShuttingDown) {
       try {
         const input = await this.promptUser();
         
@@ -389,6 +400,9 @@ class AdvancedChatTester {
         
       } catch (error) {
         console.error(`${colors.red}❌ 错误: ${error}${colors.reset}\n`);
+        if (this.isShuttingDown || !this.sessionState.isActive) {
+          break;
+        }
       }
     }
   }
@@ -398,6 +412,9 @@ class AdvancedChatTester {
    */
   private async continueInteraction(): Promise<void> {
     try {
+      if (this.isShuttingDown || !this.sessionState.isActive || this.rlClosed) {
+        return;
+      }
       const input = await this.promptUser();
       
       if (!input.trim()) {
@@ -417,7 +434,9 @@ class AdvancedChatTester {
       
     } catch (error) {
       console.error(`${colors.red}❌ 错误: ${error}${colors.reset}\n`);
-      await this.continueInteraction();
+      if (!this.isShuttingDown && this.sessionState.isActive && !this.rlClosed) {
+        await this.continueInteraction();
+      }
     }
   }
 
@@ -425,6 +444,9 @@ class AdvancedChatTester {
    * 提示用户输入
    */
   private promptUser(): Promise<string> {
+    if (this.isShuttingDown || this.rlClosed || !this.sessionState.isActive) {
+      return Promise.reject(new Error('readline was closed'));
+    }
     return new Promise((resolve) => {
       this.rl.question(`${colors.bright}${colors.blue}你: ${colors.reset}`, (input) => {
         resolve(input);
@@ -532,6 +554,7 @@ class AdvancedChatTester {
       case '/exit':
         console.log(`${colors.yellow}👋 再见！${colors.reset}`);
         this.sessionState.isActive = false;
+        this.isShuttingDown = true;
         this.rl.close();
         break;
         
@@ -1256,6 +1279,12 @@ class AdvancedChatTester {
       if (this.sessionState.toolExecMode === 'outside' && 
         this.sessionState.pendingAnswerToolCalls.length > 0) {
         this.handleExternalToolCalls(this.sessionState.pendingAnswerToolCalls);
+      } else {
+        // 无待执行工具调用时，显式进入下一轮交互，避免卡住
+        console.log(`${colors.dim}✅ 等待用户输入${colors.reset}\n`);
+        if (!this.isShuttingDown && this.sessionState.isActive && !this.rlClosed) {
+          await this.continueInteraction();
+        }
       }
     } else {
       console.log(`${colors.red}❌ AI回复失败: ${result.error}${colors.reset}\n`);
@@ -1380,6 +1409,12 @@ class AdvancedChatTester {
       if (this.sessionState.toolExecMode === 'outside' && 
           this.sessionState.pendingAnswerToolCalls.length > 0) {
         this.handleExternalToolCalls(this.sessionState.pendingAnswerToolCalls);
+      } else {
+        // 无待执行工具调用时，显式进入下一轮交互，避免卡住
+        console.log(`${colors.dim}✅ 所有工具调用已完成，等待用户输入${colors.reset}\n`);
+        if (!this.isShuttingDown && this.sessionState.isActive && !this.rlClosed) {
+          await this.continueInteraction();
+        }
       }
       
     } finally {
@@ -1403,7 +1438,9 @@ class AdvancedChatTester {
       console.log(`${colors.dim}✅ 等待用户输入${colors.reset}\n`);
       
       // 继续交互循环，等待用户输入
-      this.continueInteraction();
+      if (!this.isShuttingDown && this.sessionState.isActive && !this.rlClosed) {
+        this.continueInteraction();
+      }
       return;
     }
     
@@ -1485,6 +1522,9 @@ class AdvancedChatTester {
    * 提示用户输入工具执行结果
    */
   private async promptToolResult(toolCall: any): Promise<string | null> {
+    if (this.isShuttingDown || this.rlClosed || !this.sessionState.isActive) {
+      return Promise.resolve(null);
+    }
     return new Promise((resolve) => {
       const toolName = toolCall.toolName || toolCall.name;
       console.log(`\n${colors.bright}${colors.blue}请输入工具 "${toolName}" 的执行结果:${colors.reset}`);
@@ -1595,7 +1635,9 @@ class AdvancedChatTester {
           console.log(`${colors.dim}✅ 所有工具调用已完成，等待用户输入${colors.reset}\n`);
           
           // 继续交互循环，等待用户输入
-          this.continueInteraction();
+          if (!this.isShuttingDown && this.sessionState.isActive && !this.rlClosed) {
+            this.continueInteraction();
+          }
         }
       } else {
         console.log(`${colors.red}❌ 发送工具执行结果失败: ${result.error}${colors.reset}\n`);
