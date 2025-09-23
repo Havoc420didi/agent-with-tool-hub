@@ -116,6 +116,10 @@ export interface ToolCallResult {
   result: any;
   success: boolean;
   error?: string;
+  // 添加工具调用的参数和元数据信息
+  args?: Record<string, any>;
+  id?: string;
+  description?: string;
 }
 
 // Agent 响应接口
@@ -219,6 +223,8 @@ export interface MemoryManager {
  * 聊天请求接口（支持历史记录）
  */
 export interface ChatRequest {
+  /** 消息类型 */
+  messageType?: 'user' | 'tool';
   /** 用户消息 */
   message: string;
   /** 会话ID */

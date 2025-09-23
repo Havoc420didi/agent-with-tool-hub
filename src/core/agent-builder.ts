@@ -180,12 +180,24 @@ export class AgentBuilder {
     // 定义是否继续的条件函数
     const shouldContinue = (state: AgentState) => {
       const { messages } = state;
-      const lastMessage = messages[messages.length - 1] as AIMessage;
+      const lastMessage = messages[messages.length - 1];
       
-      // 如果 LLM 进行了工具调用 & 内部执行模式，则路由到 "tools" 节点
-      if (lastMessage.tool_calls?.length && this.config.toolExecutionConfig?.mode === ToolExecutionMode.INTERNAL) {
+      // 如果是工具消息（工具执行结果），需要路由到工具节点处理
+      if (lastMessage instanceof ToolMessage) {
         return "tools";
       }
+      
+      // 如果是AI消息且包含工具调用
+      if (lastMessage instanceof AIMessage && lastMessage.tool_calls?.length) {
+        if (this.config.toolExecutionConfig?.mode === ToolExecutionMode.INTERNAL) {
+          // 内部执行模式：路由到工具节点执行
+          return "tools";
+        } else {
+          // 外部执行模式：直接停止，让外部处理工具调用
+          return END;
+        }
+      }
+      
       // 否则停止（回复用户）
       return END;
     };
@@ -199,17 +211,18 @@ export class AgentBuilder {
 
       if (systemPromptConfig?.enabled !== false) {
         // 获取当前系统提示词（使用默认通用配置）
-        const systemPrompt = this.buildSystemPrompt({
-          kind: 'generic', // INFO 不同的基本 system-prompt 定义
-          config: {},
-          options: {
-            includeUnavailable: systemPromptConfig?.includeUnavailable || false,
-            includeParameters: systemPromptConfig?.includeParameters !== false,
-            includeStatistics: systemPromptConfig?.includeStatistics !== false,
-            includeDependencies: systemPromptConfig?.includeDependencies || false,
-            customPrefix: systemPromptConfig?.customPrefix
-          }
-        });
+        const systemPrompt = ''
+        // this.buildSystemPrompt({
+        //   kind: 'wechat', // INFO 不同的基本 system-prompt 定义
+        //   config: {},
+        //   options: {
+        //     includeUnavailable: systemPromptConfig?.includeUnavailable || false,
+        //     includeParameters: systemPromptConfig?.includeParameters !== false,
+        //     includeStatistics: systemPromptConfig?.includeStatistics !== false,
+        //     includeDependencies: systemPromptConfig?.includeDependencies || false,
+        //     customPrefix: systemPromptConfig?.customPrefix
+        //   }
+        // });
 
         this.logger.info('🏵️ 系统提示词', {
           finalSystemPrompt: systemPrompt
@@ -230,10 +243,36 @@ export class AgentBuilder {
       }
     };
 
+    // 创建自定义工具节点，处理外部执行模式
+    const customToolNode = async (state: AgentState) => {
+      const { messages } = state;
+      const lastMessage = messages[messages.length - 1];
+      
+      // 如果是工具消息（工具执行结果），直接返回，不执行工具
+      if (lastMessage instanceof ToolMessage) {
+        this.logger.debug('工具节点收到工具结果消息，直接返回', {
+          toolCallId: lastMessage.tool_call_id,
+          content: lastMessage.content
+        });
+        return { messages: [] };
+      }
+      
+      // 如果是AI消息且包含工具调用，在外部执行模式下不执行工具
+      if (lastMessage instanceof AIMessage && lastMessage.tool_calls?.length) {
+        this.logger.debug('工具节点收到工具调用，外部执行模式下不执行', {
+          toolCalls: lastMessage.tool_calls.length
+        });
+        return { messages: [] };
+      }
+      
+      // 其他情况使用原始工具节点
+      return this.toolNode.invoke(state);
+    };
+
     // 创建状态图 // INFO 非常简单的状态图，只有 agent 和 tools 两个节点。
     this.workflow = new StateGraph(MessagesAnnotation)
       .addNode("agent", callModel)
-      .addNode("tools", this.toolNode)
+      .addNode("tools", customToolNode)
       .addEdge(START, "agent")
       .addConditionalEdges("agent", shouldContinue, ["tools", END])
       .addEdge("tools", "agent");
@@ -291,23 +330,15 @@ export class AgentBuilder {
   /**
    * 调用 agent（支持两种记忆方式）
    */
-  async invoke(request: ChatRequest): Promise<AgentResponse>;
-  async invoke(messageOrRequest: string | ChatRequest, threadId?: string): Promise<AgentResponse> {
+  async invoke(request: ChatRequest): Promise<AgentResponse> {
     // 处理重载参数
     let message: string;
     let actualThreadId: string;
-    let chatHistory: ChatHistoryMessage[] | undefined;
     let memoryMode: 'api' | 'lg' = 'lg';
 
-    if (typeof messageOrRequest === 'string') {
-      message = messageOrRequest;
-      actualThreadId = threadId || 'default';
-    } else {
-      message = messageOrRequest.message;
-      actualThreadId = messageOrRequest.threadId || 'default';
-      chatHistory = messageOrRequest.chatHistory;
-      memoryMode = messageOrRequest.memoryMode || this.config.memory?.mode || 'lg';
-    }
+    message = request.message;
+    actualThreadId = request.threadId || 'default';
+    memoryMode = request.memoryMode || this.config.memory?.mode || 'lg';
 
     // 检查工具状态变化，如果需要则重新绑定
     this.checkAndRebindIfNeeded();
@@ -318,16 +349,100 @@ export class AgentBuilder {
     // 构建消息列表
     let messages: any[] = [];
 
-    if (memoryMode === 'api' && chatHistory) {
+    if (memoryMode === 'api' && request.chatHistory) {
       // API模式：使用传入的历史记录
-      messages = chatHistory.map(msg => MemoryManagerImpl.toLangChainMessage(msg));
+      messages =  request.chatHistory.map(msg => MemoryManagerImpl.toLangChainMessage(msg));
     } else if (memoryMode === 'lg' && this.checkpointer) {
       // LG模式：使用LangGraph内置记忆，不传递历史记录
       // LangGraph会自动从checkpointer中恢复历史
     }
 
-    // 添加当前用户消息 // TODO 区分 Human 和 Tool（对于 outside 模式）
-    messages.push(new HumanMessage(message));
+    // 根据消息类型添加相应的消息
+    const messageType = request.messageType || 'user';
+
+    if (messageType == 'tool') {
+      // 工具执行结果消息
+      if (memoryMode === 'lg' && this.checkpointer) {
+        // LG模式：直接从LangGraph状态中获取最近的工具调用
+        try {
+          // 获取当前状态以找到最近的工具调用
+          const currentState = await this.app.getState({ configurable: { thread_id: actualThreadId } });
+          const lastMessage = currentState.values.messages[currentState.values.messages.length - 1];
+          
+          if (lastMessage && lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+            // 使用最近的工具调用ID
+            const latestToolCall = lastMessage.tool_calls[lastMessage.tool_calls.length - 1];
+            
+            // 创建工具消息
+            const toolMessage = new ToolMessage({
+              content: message,
+              tool_call_id: latestToolCall.id
+            });
+            
+            messages.push(toolMessage);
+            
+            this.logger.info('LG模式工具执行结果已处理', {
+              toolCallId: latestToolCall.id,
+              toolName: latestToolCall.name,
+              threadId: actualThreadId,
+              result: message
+            });
+          } else {
+            this.logger.warn('LG模式下未找到待执行的工具调用', {
+              threadId: actualThreadId,
+              message
+            });
+            // 作为用户消息处理
+            messages.push(new HumanMessage(message));
+          }
+        } catch (error) {
+          this.logger.error('获取LG状态失败', {
+            error: error instanceof Error ? error.message : String(error),
+            threadId: actualThreadId
+          });
+          // 作为用户消息处理
+          messages.push(new HumanMessage(message));
+        }
+      } else {
+        // API模式：使用待执行工具调用列表
+        const pendingToolCalls = this.getPendingToolCalls();
+        this.logger.info('🔍 待执行的工具调用', {
+          pendingToolCalls
+        });
+        if (pendingToolCalls.length > 0) {
+          // 使用最近的待执行工具调用
+          const latestToolCall = pendingToolCalls[pendingToolCalls.length - 1];
+          
+          // 创建工具消息，直接使用 message 内容作为工具结果
+          const toolMessage = new ToolMessage({
+            content: message,
+            tool_call_id: latestToolCall.id
+          });
+          
+          messages.push(toolMessage);
+          
+          // 标记工具调用为已完成
+          await this.toolCallManager.handleToolCallResult(latestToolCall, message);
+          
+          this.logger.info('API模式工具执行结果已处理', {
+            toolCallId: latestToolCall.id,
+            toolName: latestToolCall.name,
+            threadId: actualThreadId,
+            result: message
+          });
+        } else {
+          this.logger.warn('收到工具执行结果但没有待执行的工具调用', {
+            threadId: actualThreadId,
+            message
+          });
+          // 如果没有待执行的工具调用，仍然作为用户消息处理
+          messages.push(new HumanMessage(message));
+        }
+      }
+    } else {
+      // 用户消息
+      messages.push(new HumanMessage(message));
+    }
 
     const config: any = {};
     if (this.checkpointer && memoryMode === 'lg') {
@@ -371,7 +486,11 @@ export class AgentBuilder {
         toolCalls.push({
           toolName: toolCall.name,
           result: toolResult?.content || '',
-          success: true
+          success: true,
+          // 添加工具调用的参数信息
+          args: toolCall.args || {},
+          id: toolCall.id,
+          description: (toolCall as any).description || undefined
         });
       }
     }

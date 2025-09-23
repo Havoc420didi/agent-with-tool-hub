@@ -32,10 +32,12 @@ export function setAgentService(service: AgentService): void {
 export function createChatRoutes(): Router {
   const router = new Router();
 
-  // 基本对话 API（支持记忆功能）
+  // 基本对话 API
   router.post('/chat', async (ctx) => {
     try {
       const {
+        // 消息类型配置
+        messageType = 'user', // 'user' | 'tool'
         message,
         threadId = `thread_${Date.now()}`,
         // 记忆配置
@@ -79,7 +81,8 @@ export function createChatRoutes(): Router {
         config = {}
       } = ctx.request.body as any;
 
-      if (!message) {
+      // 验证消息内容
+      if (!message || !message.trim()) {
         ctx.status = 400;
         ctx.body = {
           success: false,
@@ -136,19 +139,23 @@ export function createChatRoutes(): Router {
 
       // 构建聊天请求
       const chatRequest: ChatRequest = {
+        messageType,
         message,
         threadId,
         chatHistory,
         memoryMode,
         maxHistory,
-        config
+        config: {
+          ...config,
+        }
       };
 
-      Logger.debug('聊天请求', { 
+      Logger.debug('1️⃣ 聊天请求', { 
         threadId, 
+        messageType,
         messageLength: message.length,
+        memoryMode,
         hasChatHistory: !!chatHistory,
-        memoryMode 
       });
 
       // 执行聊天
@@ -186,10 +193,20 @@ export function createChatRoutes(): Router {
             toolCallsCount: chatResult.data?.toolCalls?.length || 0
           });
           
+          // 获取待执行的工具调用（外部执行模式）
+          let pendingToolCalls: any[] = [];
+          if (toolExecutionConfig.mode === ToolExecutionMode.OUTSIDE && agent) {
+            pendingToolCalls = agent.getPendingToolCalls();
+          }
+          
           result = {
             content: chatResult.data?.content || '',
             toolCalls: chatResult.data?.toolCalls || [],
-            metadata: chatResult.data?.metadata || {}
+            metadata: {
+              ...chatResult.data?.metadata || {},
+              pendingToolCalls: toolExecutionConfig.mode === ToolExecutionMode.OUTSIDE ? pendingToolCalls : undefined,
+              executionMode: toolExecutionConfig.mode
+            }
           };
         } catch (chatError) {
           Logger.error(`聊天执行异常: ${threadId}`, {

@@ -271,13 +271,13 @@ export class SystemPromptBuilder {
         );
 
       case 'wechat':
-        if (!config || !config.developerContext) {
-          throw new Error('微信小程序类型需要提供 userInfo, memorySummary, developerContext 参数');
-        }
+        // if (!config || !config.developerContext) {
+        //   throw new Error('微信小程序类型需要提供 developerContext 参数');
+        // }
         return this.buildWechatMiniProgramPrompt(
           config.userInfo || '',
           config.memorySummary || '',
-          config.developerContext,
+          config.developerContext || '',
           options
         );
 

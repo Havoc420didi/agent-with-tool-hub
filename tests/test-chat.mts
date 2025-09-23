@@ -45,6 +45,9 @@ interface SessionState {
   history: MessageHistory[];
   toolExecMode: 'internal' | 'outside';
   memoryMode: 'api' | 'lg';
+  pendingToolCalls: any[]; // 待执行的工具调用
+  isWaitingForToolResult: boolean; // 是否正在等待工具执行结果
+  pendingAnswerToolCalls: any[]; // 待回答的工具调用（需要外部处理的）
   config: {
     streaming: boolean;
     temperature: number;
@@ -85,6 +88,7 @@ class SmartCLIProcessor {
     // 工具相关
     { short: '/t', full: '/tools', description: '显示可用工具列表', category: '工具' },
     { short: '/m', full: '/mode', description: '切换工具执行模式 (internal/outside)', category: '工具' },
+    { short: '/p', full: '/pending', description: '显示待回答的工具调用', category: '工具' },
     
     // 模型相关
     { short: '/ml', full: '/models', description: '显示可用模型列表', category: '模型' },
@@ -101,6 +105,7 @@ class SmartCLIProcessor {
     // 数据相关
     { short: '/e', full: '/export', description: '导出对话历史 (local|api|both)', category: '数据' },
     { short: '/r', full: '/reset', description: '重置会话', category: '数据' },
+    { short: '/ct', full: '/clear-tools', description: '清除待执行的工具调用', category: '工具' },
   ];
 
   processCommand(input: string): CLIResult {
@@ -205,7 +210,7 @@ class SmartCLIProcessor {
   }
 }
 
-const DEFAULT_TOOL_EXEC_MODE = 'internal';
+const DEFAULT_TOOL_EXEC_MODE = 'outside';
 const DEFAULT_MEMORY_MODE = 'lg';
 
 // 模型配置管理器已从 model-config.ts 导入
@@ -236,6 +241,9 @@ class AdvancedChatTester {
       history: [],
       toolExecMode: DEFAULT_TOOL_EXEC_MODE,
       memoryMode: DEFAULT_MEMORY_MODE, // 默认使用LG模式
+      pendingToolCalls: [], // 待执行的工具调用
+      isWaitingForToolResult: false, // 是否正在等待工具执行结果
+      pendingAnswerToolCalls: [], // 待回答的工具调用（需要外部处理的）
       config: {
         streaming: false,
         temperature: currentModel?.temperature || 0,
@@ -386,6 +394,34 @@ class AdvancedChatTester {
   }
 
   /**
+   * 继续交互（在工具执行完成后）
+   */
+  private async continueInteraction(): Promise<void> {
+    try {
+      const input = await this.promptUser();
+      
+      if (!input.trim()) {
+        await this.continueInteraction();
+        return;
+      }
+
+      // 处理命令
+      if (input.startsWith('/')) {
+        await this.handleCommand(input);
+        await this.continueInteraction();
+        return;
+      }
+
+      // 发送消息到AI
+      await this.sendMessage(input);
+      
+    } catch (error) {
+      console.error(`${colors.red}❌ 错误: ${error}${colors.reset}\n`);
+      await this.continueInteraction();
+    }
+  }
+
+  /**
    * 提示用户输入
    */
   private promptUser(): Promise<string> {
@@ -453,6 +489,10 @@ class AdvancedChatTester {
         this.handleMemoryCommand(args);
         break;
         
+      case '/pending':
+        this.showPendingAnswerToolCalls();
+        break;
+        
       case '/temperature':
         this.setTemperature(args[0]);
         break;
@@ -485,18 +525,14 @@ class AdvancedChatTester {
         this.resetSession();
         break;
         
+      case '/clear-tools':
+        this.clearPendingTools();
+        break;
+        
       case '/exit':
         console.log(`${colors.yellow}👋 再见！${colors.reset}`);
         this.sessionState.isActive = false;
         this.rl.close();
-        break;
-        
-      case '/template':
-        this.manageTemplates(args);
-        break;
-        
-      case '/search':
-        this.handleSearch(args);
         break;
         
       case '/settings':
@@ -539,6 +575,9 @@ class AdvancedChatTester {
     console.log(`${colors.cyan}  运行时间: ${colors.yellow}${minutes}分${seconds}秒${colors.reset}`);
     console.log(`${colors.cyan}  工具执行模式: ${colors.yellow}${this.sessionState.toolExecMode}${colors.reset}`);
     console.log(`${colors.cyan}  记忆模式: ${colors.yellow}${this.sessionState.memoryMode}${colors.reset}`);
+    console.log(`${colors.cyan}  待执行工具: ${colors.yellow}${this.sessionState.pendingToolCalls.length}个${colors.reset}`);
+    console.log(`${colors.cyan}  待回答工具: ${colors.yellow}${this.sessionState.pendingAnswerToolCalls.length}个${colors.reset}`);
+    console.log(`${colors.cyan}  等待工具结果: ${colors.yellow}${this.sessionState.isWaitingForToolResult ? '是' : '否'}${colors.reset}`);
     console.log(`${colors.cyan}  Thread-ID: ${colors.yellow}${this.sessionState.threadId || '将在第一次聊天时自动生成'}${colors.reset}`);
     console.log(`${colors.cyan}  状态: ${colors.green}${this.sessionState.isActive ? '活跃' : '已结束'}${colors.reset}\n`);
   }
@@ -581,6 +620,8 @@ class AdvancedChatTester {
     console.log(`${colors.cyan}  流式: ${colors.yellow}${this.sessionState.config.streaming ? '是' : '否'}${colors.reset}`);
     console.log(`${colors.cyan}  工具执行模式: ${colors.yellow}${this.sessionState.toolExecMode}${colors.reset}`);
     console.log(`${colors.cyan}  记忆模式: ${colors.yellow}${this.sessionState.memoryMode}${colors.reset}`);
+    console.log(`${colors.cyan}  待执行工具: ${colors.yellow}${this.sessionState.pendingToolCalls.length}个${colors.reset}`);
+    console.log(`${colors.cyan}  等待工具结果: ${colors.yellow}${this.sessionState.isWaitingForToolResult ? '是' : '否'}${colors.reset}`);
     console.log(`${colors.cyan}  Thread-ID: ${colors.yellow}${this.sessionState.threadId || '将在第一次聊天时自动生成'}${colors.reset}`);
     console.log(`${colors.cyan}  API地址: ${colors.yellow}${this.API_BASE_URL}${colors.reset}`);
     console.log(`${colors.cyan}  模型API: ${colors.yellow}${this.sessionState.config.baseURL}${colors.reset}\n`);
@@ -1043,6 +1084,8 @@ class AdvancedChatTester {
     this.sessionState.messageCount = 0;
     this.sessionState.history = [];
     this.sessionState.startTime = new Date();
+    this.sessionState.pendingToolCalls = [];
+    this.sessionState.isWaitingForToolResult = false;
     
     console.clear();
     this.printWelcome();
@@ -1052,6 +1095,7 @@ class AdvancedChatTester {
     console.log(`${colors.cyan}  新 Thread-ID: ${colors.yellow}${this.sessionState.threadId}${colors.reset}`);
     console.log(`${colors.dim}  - 对话历史已清空${colors.reset}`);
     console.log(`${colors.dim}  - 消息计数已重置${colors.reset}`);
+    console.log(`${colors.dim}  - 工具调用状态已重置${colors.reset}`);
     console.log(`${colors.dim}  - 准备开始新的对话${colors.reset}\n`);
   }
 
@@ -1069,6 +1113,9 @@ class AdvancedChatTester {
       history: [],
       toolExecMode: DEFAULT_TOOL_EXEC_MODE,
       memoryMode: DEFAULT_MEMORY_MODE, // 重置为LG模式
+      pendingToolCalls: [],
+      isWaitingForToolResult: false,
+      pendingAnswerToolCalls: [], // 重置待回答的工具调用
       config: {
         streaming: false,
         temperature: currentModel?.temperature || 0,
@@ -1082,6 +1129,19 @@ class AdvancedChatTester {
   }
 
   /**
+   * 清除待执行的工具调用
+   */
+  private clearPendingTools(): void {
+    const clearedCount = this.sessionState.pendingToolCalls.length;
+    this.sessionState.pendingToolCalls = [];
+    this.sessionState.isWaitingForToolResult = false;
+    
+    console.log(`${colors.green}✅ 已清除 ${clearedCount} 个待执行的工具调用${colors.reset}`);
+    console.log(`${colors.dim}  - 工具调用状态已重置${colors.reset}`);
+    console.log(`${colors.dim}  - 可以继续正常对话${colors.reset}\n`);
+  }
+
+  /**
    * 发送消息到AI
    */
   private async sendMessage(message: string): Promise<void> {
@@ -1091,6 +1151,13 @@ class AdvancedChatTester {
     if (this.sessionState.messageCount === 1 && !this.sessionState.threadId) {
       this.sessionState.threadId = `session_${Date.now()}`;
       console.log(`${colors.dim}🧵 自动生成 Thread-ID: ${this.sessionState.threadId}${colors.reset}`);
+    }
+    
+    // 检查是否正在等待工具执行结果
+    if (this.sessionState.isWaitingForToolResult && this.sessionState.pendingToolCalls.length > 0) {
+      console.log(`${colors.yellow}🔧 检测到工具执行结果输入，将作为工具结果处理${colors.reset}`);
+      await this.handleToolResultInput(message);
+      return;
     }
     
     // 记录用户消息
@@ -1118,10 +1185,11 @@ class AdvancedChatTester {
    * 发送普通消息
    */
   private async sendNormalMessage(message: string): Promise<void> {
-    // 构建请求体
+    // 构建请求体 - 使用新的统一 API 格式
     const requestBody: any = {
       message,
       threadId: this.sessionState.threadId,
+      messageType: 'user', // 明确指定消息类型
       model: {
         name: this.sessionState.config.model,
         temperature: this.sessionState.config.temperature,
@@ -1141,7 +1209,11 @@ class AdvancedChatTester {
           enableCache: true,
           cacheTtl: 300000,
           maxRetries: 3
-        }
+        },
+        outsideConfig: this.sessionState.toolExecMode === 'outside' ? {
+          waitForResult: false,
+          timeout: 30000
+        } : undefined
       }
     };
 
@@ -1179,6 +1251,12 @@ class AdvancedChatTester {
         toolCalls: result.data.toolCalls,
         metadata: result.data.metadata
       });
+
+      // 如果是外部执行模式且有待执行的工具调用，处理工具调用
+      if (this.sessionState.toolExecMode === 'outside' && 
+        this.sessionState.pendingAnswerToolCalls.length > 0) {
+        this.handleExternalToolCalls(this.sessionState.pendingAnswerToolCalls);
+      }
     } else {
       console.log(`${colors.red}❌ AI回复失败: ${result.error}${colors.reset}\n`);
     }
@@ -1188,10 +1266,11 @@ class AdvancedChatTester {
    * 发送流式消息
    */
   private async sendStreamingMessage(message: string): Promise<void> {
-    // 构建请求体
+    // 构建请求体 - 使用新的统一 API 格式
     const requestBody: any = {
       message,
       threadId: this.sessionState.threadId,
+      messageType: 'user', // 明确指定消息类型
       model: {
         name: this.sessionState.config.model,
         temperature: this.sessionState.config.temperature,
@@ -1211,7 +1290,11 @@ class AdvancedChatTester {
           enableCache: true,
           cacheTtl: 300000,
           maxRetries: 3
-        }
+        },
+        outsideConfig: this.sessionState.toolExecMode === 'outside' ? {
+          waitForResult: false,
+          timeout: 30000
+        } : undefined
       }
     };
 
@@ -1242,6 +1325,8 @@ class AdvancedChatTester {
     }
 
     let fullContent = '';
+    let toolCalls: any[] = [];
+    let metadata: any = {};
     console.log(`\n${colors.bright}${colors.green}🤖 AI助手:${colors.reset}`);
     
     try {
@@ -1262,6 +1347,10 @@ class AdvancedChatTester {
               if (parsed.type === 'content' && parsed.data && parsed.data.content) {
                 process.stdout.write(parsed.data.content);
                 fullContent += parsed.data.content;
+              } else if (parsed.type === 'toolCalls' && parsed.data) {
+                toolCalls = parsed.data;
+              } else if (parsed.type === 'metadata' && parsed.data) {
+                metadata = parsed.data;
               } else if (parsed.type === 'error') {
                 console.log(`\n${colors.red}❌ 流式响应错误: ${parsed.data?.error || '未知错误'}${colors.reset}`);
                 break;
@@ -1282,11 +1371,274 @@ class AdvancedChatTester {
       this.sessionState.history.push({
         timestamp: new Date(),
         role: 'assistant',
-        content: fullContent
+        content: fullContent,
+        toolCalls: toolCalls,
+        metadata: metadata
       });
+
+      // 如果是外部执行模式且有待执行的工具调用，处理工具调用
+      if (this.sessionState.toolExecMode === 'outside' && 
+          this.sessionState.pendingAnswerToolCalls.length > 0) {
+        this.handleExternalToolCalls(this.sessionState.pendingAnswerToolCalls);
+      }
       
     } finally {
       reader.releaseLock();
+    }
+  }
+
+  /**
+   * 处理外部工具调用
+   */
+  private async handleExternalToolCalls(pendingToolCalls: any[]): Promise<void> {
+    // 过滤掉已经完成的工具调用
+    const activeToolCalls = pendingToolCalls.filter(tc => 
+      tc.status !== 'completed' && tc.status !== 'failed'
+    );
+    
+    if (activeToolCalls.length === 0) {
+      console.log(`${colors.dim}📝 没有需要处理的活跃工具调用${colors.reset}`);
+      // 重置等待状态，让用户可以继续输入
+      this.sessionState.isWaitingForToolResult = false;
+      console.log(`${colors.dim}✅ 等待用户输入${colors.reset}\n`);
+      
+      // 继续交互循环，等待用户输入
+      this.continueInteraction();
+      return;
+    }
+    
+    console.log(`\n${colors.bright}${colors.yellow}🔧 检测到 ${activeToolCalls.length} 个待执行的工具调用${colors.reset}`);
+    
+    // 更新会话状态 - 合并新的待执行工具调用，避免重复
+    const existingIds = new Set(this.sessionState.pendingToolCalls.map(tc => tc.id));
+    const newToolCalls = activeToolCalls.filter(tc => !existingIds.has(tc.id));
+    this.sessionState.pendingToolCalls = [...this.sessionState.pendingToolCalls, ...newToolCalls];
+    this.sessionState.isWaitingForToolResult = true;
+    
+    // 只处理新添加的工具调用，避免重复处理
+    for (const toolCall of newToolCalls) {
+      const toolName = toolCall.toolName || toolCall.name;
+      console.log(`\n${colors.cyan}工具调用: ${colors.yellow}${toolName}${colors.reset}`);
+      
+      // 显示工具ID
+      if (toolCall.id) {
+        console.log(`${colors.dim}ID: ${toolCall.id}${colors.reset}`);
+      }
+      
+      // 显示工具描述
+      if (toolCall.description) {
+        console.log(`${colors.dim}描述: ${toolCall.description}${colors.reset}`);
+      }
+      
+      // 显示参数详情
+      if (toolCall.args && Object.keys(toolCall.args).length > 0) {
+        console.log(`${colors.dim}参数详情:${colors.reset}`);
+        Object.entries(toolCall.args).forEach(([key, value]) => {
+          const valueStr = typeof value === 'object' ? JSON.stringify(value, null, 6) : String(value);
+          console.log(`${colors.dim}  ${key}: ${valueStr}${colors.reset}`);
+        });
+      } else if (toolCall.args) {
+        console.log(`${colors.dim}参数: ${JSON.stringify(toolCall.args, null, 2)}${colors.reset}`);
+      }
+      
+      // 显示状态
+      if (toolCall.status) {
+        const statusColor = toolCall.status === 'pending' ? colors.yellow : 
+                           toolCall.status === 'completed' ? colors.green : 
+                           toolCall.status === 'failed' ? colors.red : colors.dim;
+        console.log(`${colors.dim}状态: ${statusColor}${toolCall.status}${colors.reset}`);
+      }
+      
+      // 提示用户输入工具执行结果
+      const toolResult = await this.promptToolResult(toolCall);
+      
+      if (toolResult !== null) {
+        // 发送工具执行结果
+        await this.sendToolResult(toolCall.id, toolResult);
+      } else {
+        console.log(`${colors.red}❌ 跳过工具调用: ${toolName}${colors.reset}`);
+        // 标记为失败状态
+        this.markToolCallAsFailed(toolCall.id, '用户跳过');
+      }
+    }
+  }
+
+  /**
+   * 处理工具结果输入（当用户直接输入工具结果时）
+   */
+  private async handleToolResultInput(message: string): Promise<void> {
+    if (this.sessionState.pendingToolCalls.length === 0) {
+      console.log(`${colors.red}❌ 没有待执行的工具调用${colors.reset}\n`);
+      return;
+    }
+    
+    // 使用第一个待执行的工具调用
+    const toolCall = this.sessionState.pendingToolCalls[0];
+    const toolName = toolCall.toolName || toolCall.name;
+    console.log(`${colors.cyan}🔧 将输入作为工具 "${toolName}" 的执行结果${colors.reset}`);
+    
+    // 发送工具执行结果
+    await this.sendToolResult(toolCall.id, message);
+  }
+
+  /**
+   * 提示用户输入工具执行结果
+   */
+  private async promptToolResult(toolCall: any): Promise<string | null> {
+    return new Promise((resolve) => {
+      const toolName = toolCall.toolName || toolCall.name;
+      console.log(`\n${colors.bright}${colors.blue}请输入工具 "${toolName}" 的执行结果:${colors.reset}`);
+      console.log(`${colors.dim}  - 直接输入消息将作为工具结果处理${colors.reset}`);
+      
+      // 构建带工具名称和ID的提示符
+      const toolId = toolCall.id || 'unknown';
+      const promptText = `工具返回（${toolName} ${toolId}）：`;
+      
+      this.rl.question(`${colors.bright}${colors.green}${promptText}${colors.reset}`, (input) => {
+        const trimmedInput = input.trim();
+        
+        if (!trimmedInput) {
+          console.log(`${colors.red}❌ 请输入工具执行结果${colors.reset}`);
+          resolve(null);
+          return;
+        }
+        
+        resolve(trimmedInput);
+      });
+    });
+  }
+
+  /**
+   * 发送工具执行结果
+   */
+  private async sendToolResult(toolCallId: string, toolResult: string): Promise<void> {
+    console.log(`${colors.dim}📤 正在发送工具执行结果...${colors.reset}`);
+    
+    // 标记工具调用为执行中
+    this.markToolCallAsExecuting(toolCallId);
+    
+    const requestBody: any = {
+      message: toolResult,
+      threadId: this.sessionState.threadId,
+      messageType: 'tool', // 指定为工具消息
+      model: {
+        name: this.sessionState.config.model,
+        temperature: this.sessionState.config.temperature,
+        baseURL: this.sessionState.config.baseURL,
+        apiKey: this.sessionState.config.apiKey
+      },
+      memory: { 
+        enabled: true,
+        mode: this.sessionState.memoryMode,
+        maxHistory: 50
+      },
+      toolExecutionConfig: {
+        mode: 'outside',
+        outsideConfig: {
+          waitForResult: false,
+          timeout: 30000
+        }
+      }
+    };
+
+    try {
+      const response = await fetch(`${this.API_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`${colors.green}✅ 工具执行结果已发送${colors.reset}`);
+        
+        // 标记工具调用为已完成
+        this.markToolCallAsCompleted(toolCallId, toolResult);
+        
+        // 从待执行列表中移除已处理的工具调用
+        this.sessionState.pendingToolCalls = this.sessionState.pendingToolCalls.filter(tc => tc.id !== toolCallId);
+        
+        // 从待回答列表中移除已处理的工具调用
+        this.sessionState.pendingAnswerToolCalls = this.sessionState.pendingAnswerToolCalls.filter(tc => tc.id !== toolCallId);
+        
+        // 如果没有更多待执行的工具调用，重置等待状态
+        if (this.sessionState.pendingToolCalls.length === 0) {
+          this.sessionState.isWaitingForToolResult = false;
+        }
+        
+        // 显示AI的后续回复
+        if (result.data.content) {
+          console.log(`\n${colors.bright}${colors.green}🤖 AI助手:${colors.reset}`);
+          console.log(`${colors.white}${result.data.content}${colors.reset}\n`);
+          
+          // 记录AI回复
+          this.sessionState.history.push({
+            timestamp: new Date(),
+            role: 'assistant',
+            content: result.data.content,
+            toolCalls: result.data.toolCalls,
+            metadata: result.data.metadata
+          });
+        }
+        
+        // 如果还有待执行的工具调用，继续处理（避免递归调用）
+        if (this.sessionState.pendingAnswerToolCalls.length > 0) {
+          this.handleExternalToolCalls(this.sessionState.pendingAnswerToolCalls);
+        } else {
+          // 如果没有更多待执行的工具调用，确保重置等待状态
+          this.sessionState.isWaitingForToolResult = false;
+          console.log(`${colors.dim}✅ 所有工具调用已完成，等待用户输入${colors.reset}\n`);
+          
+          // 继续交互循环，等待用户输入
+          this.continueInteraction();
+        }
+      } else {
+        console.log(`${colors.red}❌ 发送工具执行结果失败: ${result.error}${colors.reset}\n`);
+        this.markToolCallAsFailed(toolCallId, result.error?.message || '发送失败');
+      }
+    } catch (error) {
+      console.log(`${colors.red}❌ 发送工具执行结果时出错: ${error}${colors.reset}\n`);
+      this.markToolCallAsFailed(toolCallId, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * 标记工具调用为执行中
+   */
+  private markToolCallAsExecuting(toolCallId: string): void {
+    const toolCall = this.sessionState.pendingToolCalls.find(tc => tc.id === toolCallId);
+    if (toolCall) {
+      toolCall.status = 'executing';
+      console.log(`${colors.dim}🔄 工具调用 ${toolCallId} 状态更新为: 执行中${colors.reset}`);
+    }
+  }
+
+  /**
+   * 标记工具调用为已完成
+   */
+  private markToolCallAsCompleted(toolCallId: string, result: any): void {
+    const toolCall = this.sessionState.pendingToolCalls.find(tc => tc.id === toolCallId);
+    if (toolCall) {
+      toolCall.status = 'completed';
+      toolCall.result = result;
+      console.log(`${colors.dim}✅ 工具调用 ${toolCallId} 状态更新为: 已完成${colors.reset}`);
+    }
+  }
+
+  /**
+   * 标记工具调用为失败
+   */
+  private markToolCallAsFailed(toolCallId: string, error: string): void {
+    const toolCall = this.sessionState.pendingToolCalls.find(tc => tc.id === toolCallId);
+    if (toolCall) {
+      toolCall.status = 'failed';
+      toolCall.error = error;
+      console.log(`${colors.dim}❌ 工具调用 ${toolCallId} 状态更新为: 失败 - ${error}${colors.reset}`);
     }
   }
 
@@ -1297,16 +1649,58 @@ class AdvancedChatTester {
     console.log(`\n${colors.bright}${colors.green}🤖 AI助手:${colors.reset}`);
     console.log(`${colors.white}${data.content}${colors.reset}\n`);
     
+    // 收集待回答的工具调用到 session-data 中
+    this.collectPendingAnswerToolCalls(data);
+    
     // 显示工具调用
     if (data.toolCalls && data.toolCalls.length > 0) {
-      console.log(`${colors.bright}${colors.blue}🔧 工具调用:${colors.reset}`);
+      console.log(`${colors.bright}${colors.blue}🔧 工具调用详情:${colors.reset}`);
       data.toolCalls.forEach((tc: any, index: number) => {
-        console.log(`${colors.cyan}  ${index + 1}. ${colors.yellow}${tc.toolName}${colors.reset}`);
-        if (tc.args) {
-          console.log(`${colors.dim}     参数: ${JSON.stringify(tc.args, null, 2)}${colors.reset}`);
+        console.log(`\n${colors.cyan}  ${index + 1}. ${colors.yellow}${tc.toolName || tc.name}${colors.reset}`);
+        // 显示工具ID
+        if (tc.id || tc.toolCallId) {
+          console.log(`${colors.dim}ID: ${tc.id || tc.toolCallId}${colors.reset}`);
         }
-        if (tc.result) {
-          console.log(`${colors.dim}     结果: ${JSON.stringify(tc.result, null, 2)}${colors.reset}`);
+        
+        // 显示工具描述
+        if (tc.description) {
+          console.log(`${colors.dim}描述: ${tc.description}${colors.reset}`);
+        }
+        
+        // 显示参数详情
+        if (tc.args && Object.keys(tc.args).length > 0) {
+          console.log(`${colors.dim}参数:${colors.reset}`);
+          Object.entries(tc.args).forEach(([key, value]) => {
+            const valueStr = typeof value === 'object' ? JSON.stringify(value, null, 6) : String(value);
+            console.log(`${colors.dim}       ${key}: ${valueStr}${colors.reset}`);
+          });
+        } else if (tc.args) {
+          console.log(`${colors.dim}参数: ${JSON.stringify(tc.args, null, 2)}${colors.reset}`);
+        }
+        
+        // 显示执行状态
+        if (tc.status) {
+          const statusColor = tc.status === 'completed' ? colors.green : 
+                             tc.status === 'failed' ? colors.red : 
+                             tc.status === 'pending' ? colors.yellow : colors.dim;
+          console.log(`${colors.dim}状态: ${statusColor}${tc.status}${colors.reset}`);
+        }
+        
+        // 显示执行结果
+        if (tc.result !== undefined) {
+          console.log(`${colors.dim}结果:${colors.reset}`);
+          const resultStr = typeof tc.result === 'object' ? JSON.stringify(tc.result, null, 6) : String(tc.result);
+          console.log(`${colors.dim}${resultStr}${colors.reset}`);
+        }
+        
+        // 显示执行时间
+        if (tc.executionTime) {
+          console.log(`${colors.dim}     执行时间: ${tc.executionTime}ms${colors.reset}`);
+        }
+        
+        // 显示错误信息
+        if (tc.error) {
+          console.log(`${colors.red}     错误: ${tc.error}${colors.reset}`);
         }
       });
       console.log();
@@ -1322,112 +1716,147 @@ class AdvancedChatTester {
       console.log(`${colors.dim}🧠 记忆模式: ${data.metadata.memoryMode}${colors.reset}`);
     }
     
+    // 显示执行模式
+    if (data.metadata && data.metadata.executionMode) {
+      console.log(`${colors.dim}⚙️  执行模式: ${data.metadata.executionMode}${colors.reset}`);
+    }
+    
+    // 显示待回答的工具调用数量
+    if (this.sessionState.pendingAnswerToolCalls.length > 0) {
+      console.log(`${colors.dim}⏳ 待回答的工具调用: ${this.sessionState.pendingAnswerToolCalls.length} 个${colors.reset}`);
+    }
+    
     console.log();
   }
 
-
   /**
-   * 管理模板
+   * 收集待回答的工具调用到 session-data 中
    */
-  private manageTemplates(args: string[]): void {
-    if (args.length === 0) {
-      console.log(`${colors.bright}${colors.blue}📝 模板管理${colors.reset}`);
-      console.log(`${colors.green}  /template list${colors.reset}     - 列出所有模板`);
-      console.log(`${colors.green}  /template create <name>${colors.reset} - 创建新模板`);
-      console.log(`${colors.green}  /template delete <name>${colors.reset} - 删除模板`);
-      console.log(`${colors.green}  /template use <name>${colors.reset}   - 使用模板`);
-      console.log();
+  private collectPendingAnswerToolCalls(data: any): void {
+    // 清空之前的待回答工具调用
+    this.sessionState.pendingAnswerToolCalls = [];
+    
+    // 检查是否有工具调用需要收集
+    if (data.toolCalls && data.toolCalls.length > 0) {
+      data.toolCalls.forEach((tc: any) => {
+        // 判断是否需要外部处理的工具调用
+        const needsExternalHandling = this.shouldCollectToolCall(tc, data);
+        
+        if (needsExternalHandling) {
+          // 创建待回答的工具调用对象
+          const pendingToolCall = {
+            id: tc.id || tc.toolCallId || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            toolName: tc.toolName || tc.name,
+            args: tc.args || {},
+            description: tc.description || '',
+            status: tc.status || 'pending',
+            timestamp: new Date().toISOString(),
+            threadId: this.sessionState.threadId,
+            originalToolCall: tc, // 保存原始工具调用对象
+            metadata: {
+              executionMode: data.metadata?.executionMode || this.sessionState.toolExecMode,
+              memoryMode: data.metadata?.memoryMode || this.sessionState.memoryMode,
+              collectedAt: new Date().toISOString()
+            }
+          };
+          
+          this.sessionState.pendingAnswerToolCalls.push(pendingToolCall);
+        }
+      });
+    }
+    
+    // 如果是从 metadata 中获取的待执行工具调用，也要收集
+    if (data.metadata?.pendingToolCalls && data.metadata.pendingToolCalls.length > 0) {
+      data.metadata.pendingToolCalls.forEach((tc: any) => {
+        const pendingToolCall = {
+          id: tc.id || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          toolName: tc.name || tc.toolName,
+          args: tc.args || {},
+          description: tc.description || '',
+          status: tc.status || 'pending',
+          timestamp: new Date().toISOString(),
+          threadId: this.sessionState.threadId,
+          originalToolCall: tc,
+          metadata: {
+            executionMode: data.metadata?.executionMode || this.sessionState.toolExecMode,
+            memoryMode: data.metadata?.memoryMode || this.sessionState.memoryMode,
+            collectedAt: new Date().toISOString(),
+            source: 'metadata'
+          }
+        };
+        
+        this.sessionState.pendingAnswerToolCalls.push(pendingToolCall);
+      });
+    }
+    
+    // 如果没有收集到任何工具调用，清空待执行状态
+    if (this.sessionState.pendingAnswerToolCalls.length === 0) {
+      this.sessionState.isWaitingForToolResult = false;
+      this.sessionState.pendingToolCalls = [];
     } else {
-      const action = args[0];
-      switch (action) {
-        case 'list':
-          console.log(`${colors.yellow}📋 可用模板:${colors.reset}`);
-          console.log(`${colors.cyan}  - 默认聊天模板${colors.reset}`);
-          console.log(`${colors.cyan}  - 工具测试模板${colors.reset}`);
-          console.log(`${colors.cyan}  - 记忆管理模板${colors.reset}`);
-          break;
-        case 'create':
-          console.log(`${colors.green}✅ 模板 "${args[1] || '未命名'}" 创建成功${colors.reset}`);
-          break;
-        case 'delete':
-          console.log(`${colors.green}✅ 模板 "${args[1] || '未指定'}" 删除成功${colors.reset}`);
-          break;
-        case 'use':
-          console.log(`${colors.green}✅ 已切换到模板 "${args[1] || '未指定'}"${colors.reset}`);
-          break;
-        default:
-          console.log(`${colors.red}❌ 未知的模板操作: ${action}${colors.reset}`);
-      }
-      console.log();
+      // 记录收集结果
+      console.log(`${colors.dim}📝 已收集 ${this.sessionState.pendingAnswerToolCalls.length} 个待回答的工具调用到 session-data${colors.reset}`);
     }
   }
 
   /**
-   * 处理搜索
+   * 判断是否应该收集该工具调用
    */
-  private handleSearch(args: string[]): void {
-    if (args.length === 0) {
-      console.log(`${colors.bright}${colors.blue}🔍 搜索功能${colors.reset}`);
-      console.log(`${colors.green}  /search history <keyword>${colors.reset} - 搜索对话历史`);
-      console.log(`${colors.green}  /search tools <keyword>${colors.reset}   - 搜索工具`);
-      console.log(`${colors.green}  /search config <keyword>${colors.reset}  - 搜索配置`);
-      console.log();
-    } else {
-      const type = args[0];
-      const keyword = args.slice(1).join(' ');
-      
-      if (!keyword) {
-        console.log(`${colors.red}❌ 请提供搜索关键词${colors.reset}\n`);
-        return;
-      }
-      
-      switch (type) {
-        case 'history':
-          console.log(`${colors.yellow}🔍 在对话历史中搜索 "${keyword}":${colors.reset}`);
-          const historyMatches = this.sessionState.history.filter(msg => 
-            msg.content.toLowerCase().includes(keyword.toLowerCase())
-          );
-          if (historyMatches.length > 0) {
-            historyMatches.forEach((msg, index) => {
-              console.log(`${colors.cyan}  ${index + 1}. [${msg.role}] ${msg.content.substring(0, 100)}...${colors.reset}`);
-            });
-          } else {
-            console.log(`${colors.dim}  未找到匹配的对话${colors.reset}`);
-          }
-          break;
-        case 'tools':
-          console.log(`${colors.yellow}🔍 在工具中搜索 "${keyword}":${colors.reset}`);
-          const toolMatches = this.tools.filter(tool => 
-            tool.name.toLowerCase().includes(keyword.toLowerCase()) ||
-            tool.description.toLowerCase().includes(keyword.toLowerCase())
-          );
-          if (toolMatches.length > 0) {
-            toolMatches.forEach((tool, index) => {
-              console.log(`${colors.cyan}  ${index + 1}. ${tool.name} - ${tool.description}${colors.reset}`);
-            });
-          } else {
-            console.log(`${colors.dim}  未找到匹配的工具${colors.reset}`);
-          }
-          break;
-        case 'config':
-          console.log(`${colors.yellow}🔍 在配置中搜索 "${keyword}":${colors.reset}`);
-          const configKeys = Object.keys(this.sessionState.config);
-          const configMatches = configKeys.filter(key => 
-            key.toLowerCase().includes(keyword.toLowerCase())
-          );
-          if (configMatches.length > 0) {
-            configMatches.forEach(key => {
-              console.log(`${colors.cyan}  ${key}: ${this.sessionState.config[key as keyof typeof this.sessionState.config]}${colors.reset}`);
-            });
-          } else {
-            console.log(`${colors.dim}  未找到匹配的配置项${colors.reset}`);
-          }
-          break;
-        default:
-          console.log(`${colors.red}❌ 未知的搜索类型: ${type}${colors.reset}`);
-      }
-      console.log();
+  private shouldCollectToolCall(tc: any, data: any): boolean {
+    // 在外部执行模式下，收集所有状态为 pending 的工具调用
+    if (this.sessionState.toolExecMode === 'outside') {
+      return tc.status === 'pending' || !tc.status || tc.status === undefined;
     }
+    
+    // 在内部执行模式下，只收集那些明确标记为需要外部处理的工具调用
+    if (this.sessionState.toolExecMode === 'internal') {
+      return tc.requiresExternalHandling === true || 
+             tc.externalExecution === true ||
+             (data.metadata?.executionMode === 'outside' && tc.status === 'pending');
+    }
+    
+    // 默认不收集
+    return false;
+  }
+
+  /**
+   * 显示待回答的工具调用
+   */
+  private showPendingAnswerToolCalls(): void {
+    if (this.sessionState.pendingAnswerToolCalls.length === 0) {
+      console.log(`${colors.yellow}📝 当前没有待回答的工具调用${colors.reset}\n`);
+      return;
+    }
+    
+    console.log(`${colors.bright}${colors.blue}📝 待回答的工具调用 (${this.sessionState.pendingAnswerToolCalls.length} 个):${colors.reset}`);
+    
+    this.sessionState.pendingAnswerToolCalls.forEach((tc: any, index: number) => {
+      console.log(`\n${colors.cyan}  ${index + 1}. ${colors.yellow}${tc.toolName}${colors.reset}`);
+      console.log(`${colors.dim}    ID: ${tc.id}${colors.reset}`);
+      console.log(`${colors.dim}    描述: ${tc.description}${colors.reset}`);
+      console.log(`${colors.dim}    状态: ${tc.status}${colors.reset}`);
+      console.log(`${colors.dim}    时间: ${tc.timestamp}${colors.reset}`);
+      
+      if (tc.args && Object.keys(tc.args).length > 0) {
+        console.log(`${colors.dim}    参数:${colors.reset}`);
+        Object.entries(tc.args).forEach(([key, value]) => {
+          const valueStr = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+          console.log(`${colors.dim}      ${key}: ${valueStr}${colors.reset}`);
+        });
+      }
+      
+      if (tc.metadata) {
+        console.log(`${colors.dim}    元数据:${colors.reset}`);
+        console.log(`${colors.dim}      执行模式: ${tc.metadata.executionMode}${colors.reset}`);
+        console.log(`${colors.dim}      记忆模式: ${tc.metadata.memoryMode}${colors.reset}`);
+        console.log(`${colors.dim}      收集时间: ${tc.metadata.collectedAt}${colors.reset}`);
+        if (tc.metadata.source) {
+          console.log(`${colors.dim}      来源: ${tc.metadata.source}${colors.reset}`);
+        }
+      }
+    });
+    
+    console.log();
   }
 
   /**
@@ -1451,6 +1880,8 @@ class AdvancedChatTester {
           console.log(`${colors.cyan}  model: ${this.sessionState.config.model}${colors.reset}`);
           console.log(`${colors.cyan}  toolExecMode: ${this.sessionState.toolExecMode}${colors.reset}`);
           console.log(`${colors.cyan}  memoryMode: ${this.sessionState.memoryMode}${colors.reset}`);
+          console.log(`${colors.cyan}  pendingToolCalls: ${this.sessionState.pendingToolCalls.length}个${colors.reset}`);
+          console.log(`${colors.cyan}  isWaitingForToolResult: ${this.sessionState.isWaitingForToolResult}${colors.reset}`);
           break;
         case 'set':
           const key = args[1];
