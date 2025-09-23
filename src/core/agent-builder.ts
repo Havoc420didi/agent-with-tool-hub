@@ -211,18 +211,17 @@ export class AgentBuilder {
 
       if (systemPromptConfig?.enabled !== false) {
         // 获取当前系统提示词（使用默认通用配置）
-        const systemPrompt = ''
-        // this.buildSystemPrompt({
-        //   kind: 'wechat', // INFO 不同的基本 system-prompt 定义
-        //   config: {},
-        //   options: {
-        //     includeUnavailable: systemPromptConfig?.includeUnavailable || false,
-        //     includeParameters: systemPromptConfig?.includeParameters !== false,
-        //     includeStatistics: systemPromptConfig?.includeStatistics !== false,
-        //     includeDependencies: systemPromptConfig?.includeDependencies || false,
-        //     customPrefix: systemPromptConfig?.customPrefix
-        //   }
-        // });
+        const systemPrompt = this.buildSystemPrompt({
+          kind: 'wechat', // INFO 不同的基本 system-prompt 定义
+          config: {},
+          options: {
+            includeUnavailable: systemPromptConfig?.includeUnavailable || false,
+            includeParameters: systemPromptConfig?.includeParameters !== false,
+            includeStatistics: systemPromptConfig?.includeStatistics !== false,
+            includeDependencies: systemPromptConfig?.includeDependencies || false,
+            customPrefix: systemPromptConfig?.customPrefix
+          }
+        });
 
         this.logger.info('🏵️ 系统提示词', {
           finalSystemPrompt: systemPrompt
