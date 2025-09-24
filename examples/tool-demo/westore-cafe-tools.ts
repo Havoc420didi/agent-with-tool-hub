@@ -207,19 +207,6 @@ export class WestoreCafeTools {
         }
       },
       tags: ['westore', 'cafe', 'goods', 'display', 'specification'],
-      // dependencyGroups: [
-      //   {
-      //     type: 'sequence',
-      //     description: '需要按顺序执行：先获取商品详情，再展示规格信息',
-      //     dependencies: [
-      //       {
-      //         toolName: 'getGoodsDetail',
-      //         type: 'required',
-      //         description: '获取商品详情'
-      //       }
-      //     ]
-      //   }
-      // ]
     });
   }
 
@@ -266,22 +253,6 @@ export class WestoreCafeTools {
         }
       },
       tags: ['westore', 'cafe', 'cart', 'add'],
-      dependencyGroups: [
-        {
-          type: 'any',
-          description: '需要先展示商品规格信息或获取商品详情，拿到对应的 skuid',
-          dependencies: [
-            {
-              toolName: 'getGoodsDetail',
-              type: 'required',
-            },
-            {
-              toolName: 'displayGoodsDetailToUser',
-              type: 'required',
-            }
-          ]
-        }
-      ]
     });
   }
 
@@ -331,22 +302,6 @@ export class WestoreCafeTools {
       },
       tags: ['westore', 'cafe', 'order', 'purchase'],
       securityLevel: ToolSecurityLevel.HUMAN,
-      dependencyGroups: [
-        {
-          type: 'any',
-          description: '需要先加入购物车或展示购物车，让用户在点单前确定将要下单的商品。',
-          dependencies: [
-            {
-              toolName: 'addToCart',
-              type: 'required',
-            },
-            {
-              toolName: 'displayShopCart',
-              type: 'required',
-            }
-          ]
-        }
-      ],
     });
   }
 
@@ -409,18 +364,6 @@ export class WestoreCafeTools {
         }
       },
       tags: ['westore', 'cafe', 'cart', 'delete'],
-      dependencyGroups: [
-        {
-          type: 'all',
-          description: '需要先获取购物车，再删除商品',
-          dependencies: [
-            {
-              toolName: 'displayShopCart',
-              type: 'required',
-            }
-          ]
-        }
-      ],
     });
   }
 

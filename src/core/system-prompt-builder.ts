@@ -90,12 +90,12 @@ export class SystemPromptBuilder {
     });
 
     // 2. 工具部分
-    if (this.toolRegistry) {
-      const toolPrompt = this.buildToolSection(toolOptions);
-      if (toolPrompt) {
-        sections.push(toolPrompt);
-      }
-    }
+    // if (this.toolRegistry) {
+    //   const toolPrompt = this.buildToolSection(toolOptions);
+    //   if (toolPrompt) {
+    //     sections.push(toolPrompt);
+    //   }
+    // }
 
     // 3. 自定义前缀 // TODO
     if (toolOptions?.customPrefix) {

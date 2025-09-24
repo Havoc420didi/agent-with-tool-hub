@@ -214,13 +214,13 @@ export class AgentBuilder {
         const systemPrompt = this.buildSystemPrompt({
           kind: 'wechat', // INFO 不同的基本 system-prompt 定义
           config: {},
-          options: {
-            includeUnavailable: systemPromptConfig?.includeUnavailable || false,
-            includeParameters: systemPromptConfig?.includeParameters !== false,
-            includeStatistics: systemPromptConfig?.includeStatistics !== false,
-            includeDependencies: systemPromptConfig?.includeDependencies || false,
-            customPrefix: systemPromptConfig?.customPrefix
-          }
+          // options: {
+          //   includeUnavailable: systemPromptConfig?.includeUnavailable || false,
+          //   includeParameters: systemPromptConfig?.includeParameters !== false,
+          //   includeStatistics: systemPromptConfig?.includeStatistics !== false,
+          //   includeDependencies: systemPromptConfig?.includeDependencies || false,
+          //   customPrefix: systemPromptConfig?.customPrefix
+          // }
         });
 
         this.logger.info('🏵️ 系统提示词', {
