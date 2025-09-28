@@ -1612,19 +1612,16 @@ class AdvancedChatTester {
         }
         
         // 显示AI的后续回复
-        if (result.data.content) {
-          console.log(`\n${colors.bright}${colors.green}🤖 AI助手:${colors.reset}`);
-          console.log(`${colors.white}${result.data.content}${colors.reset}\n`);
-          
-          // 记录AI回复
-          this.sessionState.history.push({
-            timestamp: new Date(),
-            role: 'assistant',
-            content: result.data.content,
-            toolCalls: result.data.toolCalls,
-            metadata: result.data.metadata
-          });
-        }
+        this.displayAIResponse(result.data);
+
+        // 记录AI回复
+        this.sessionState.history.push({
+          timestamp: new Date(),
+          role: 'assistant',
+          content: result.data.content,
+          toolCalls: result.data.toolCalls,
+          metadata: result.data.metadata
+        });
         
         // 如果还有待执行的工具调用，继续处理（避免递归调用）
         if (this.sessionState.pendingAnswerToolCalls.length > 0) {
