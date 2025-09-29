@@ -337,12 +337,6 @@ export class AgentBuilder {
     actualThreadId = request.threadId || 'default';
     memoryMode = request.memoryMode || this.config.memory?.mode || 'lg';
 
-    // 检查工具状态变化，如果需要则重新绑定
-    this.checkAndRebindIfNeeded();
-
-    // TEST 调试日志：输出可用工具名称
-    this.logAvailableTools();
-
     // 构建消息列表
     let messages: any[] = [];
 
@@ -447,6 +441,12 @@ export class AgentBuilder {
       messages.push(new HumanMessage(message));
     }
 
+    // 检查工具状态变化，如果需要则重新绑定
+    this.checkAndRebindIfNeeded();
+
+    // TEST 调试日志：输出可用工具名称
+    this.logAvailableTools();
+
     const config: any = {};
     if (this.checkpointer && memoryMode === 'lg') {
       // 如果启用了LG内存，必须提供 thread_id
@@ -472,7 +472,7 @@ export class AgentBuilder {
         index,
         type: msg.constructor.name,
         content: typeof msg.content === 'string' ? msg.content.substring(0, 100) + '...' : msg.content,
-        tool_calls: msg.tool_calls || []
+        tool_calls: msg.tool_calls ? JSON.stringify(msg.tool_calls, null, 2) : []
       })));
     }
 
