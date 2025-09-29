@@ -292,7 +292,7 @@ export class WestoreCafeTools {
     return createToolConfig({
       name: 'order',
       // TODO 但是这里的 skuid 规则的设定。🤔
-      description: 'wxcafe 小程序点单函数，点单前先调用 getGoodsDetail 获取商品详情。1. 如果用户描述不明确（比如没有说明 温度、糖度、是否加料等信息），先向用户确认具体的规格信息， 再选取正确的 skuid 调用此函数进行点单。2. 例句：来一杯生椰拿铁，帮我点一杯冰美式，帮我买个吃的',
+      description: 'wxcafe 小程序点单函数，点单前先调用 getGoodsDetail 获取商品详情。1. 如果用户描述不明确（比如没有说明 温度、糖度、是否加料等信息），先向用户确认具体的规格信息， 再选取正确的 skuid 调用此函数进行点单。2.在执行 order 之前需要询问用户的确定意图。3.. 例句：来一杯生椰拿铁，帮我点一杯冰美式，帮我买个吃的',
       schema: z.object({
         items: z.array(z.object({
           skuId: z.number().describe('需要点的商品规格 id'),
