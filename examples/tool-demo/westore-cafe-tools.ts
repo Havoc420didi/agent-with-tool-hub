@@ -291,7 +291,7 @@ export class WestoreCafeTools {
   static order(): ToolConfig {
     return createToolConfig({
       name: 'order',
-      description: 'wxcafe小程序点单函数，点单前先调用 getGoodsDetail 获取商品详情。1. 如果用户描述不明确（比如没有说明 温度、糖度、是否加料等信息），先向用户确认具体的规格信息， 再选取正确的 skuid调用此函数进行点单。2. 如果用户描述明确，请在下单前向用户确认即将下单的商品，再进行下单。3.确认目标商品之后，必须先执行 displayShopCart 工具给用户查看接下来会下单哪些商品。4. 例句：来一杯生椰拿铁，帮我点一杯冰美式，帮我买个吃的',
+      description: 'wxcafe小程序点单函数，点单前先调用 getGoodsDetail 获取商品详情。1. 如果用户描述不明确（比如没有说明 温度、糖度、是否加料等信息），先向用户确认具体的规格信息， 再选取正确的 skuid调用此函数进行点单。2. 如果用户描述明确，请在下单前向用户确认即将下单的商品，再进行下单。3.确认目标商品之后，前置必须是执行 displayShopCart 或者 addToCart 工具给用户查看接下来会下单哪些商品。4. 例句：来一杯生椰拿铁，帮我点一杯冰美式，帮我买个吃的',
       schema: z.object({
         items: z.array(z.object({
           skuId: z.number().describe('需要点的商品规格 id'),
