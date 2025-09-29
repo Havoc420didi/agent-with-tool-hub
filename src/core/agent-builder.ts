@@ -223,9 +223,7 @@ export class AgentBuilder {
           }
         });
 
-        this.logger.info('🏵️ 系统提示词', {
-          finalSystemPrompt: systemPrompt
-        });
+        // this.logger.info('🏵️ 系统提示词', { finalSystemPrompt: systemPrompt });
         
         // 构建包含系统提示词的消息列表
         const messagesWithSystem = [
@@ -379,6 +377,12 @@ export class AgentBuilder {
             });
             
             messages.push(toolMessage);
+
+            // 通信 tool-hub 管理的工具调用状态
+            const toolCalls = lastMessage.tool_calls || [];
+            for (const toolCall of toolCalls) {
+              this.toolHub.updateToolStatus(toolCall.name, true); // 标记工具调用为完成
+            }
             
             this.logger.info('LG模式工具执行结果已处理', {
               toolCallId: latestToolCall.id,
@@ -468,7 +472,7 @@ export class AgentBuilder {
         index,
         type: msg.constructor.name,
         content: typeof msg.content === 'string' ? msg.content.substring(0, 100) + '...' : msg.content,
-        tool_calls: msg.tool_calls?.length || 0
+        tool_calls: msg.tool_calls || []
       })));
     }
 
