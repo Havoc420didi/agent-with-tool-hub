@@ -8,8 +8,6 @@ import { GenericToolDefineAdapter, OpenAIToolDefineAdapter } from '../adapters/t
 import { ToolExecutorFactory } from '../adapters/tool-exec';
 import {
   ToolConfig,
-  ToolExecutionOptions,
-  ToolExecutionResult,
   ToolHubConfig,
   ToolHubEvent,
   ToolHubEventType,
